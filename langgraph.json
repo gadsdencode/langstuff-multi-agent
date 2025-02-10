@@ -9,56 +9,56 @@
     "agents": [
       {
         "name": "DEBUGGER",
-        "file": "langstuff_multi_agent/agents/debugger.py",
+        "file": "agents/debugger.py",
         "description": "Agent responsible for debugging code."
       },
       {
         "name": "CONTEXT_MANAGER",
-        "file": "langstuff_multi_agent/agents/context_manager.py",
+        "file": "agents/context_manager.py",
         "description": "Agent responsible for managing conversation context."
       },
       {
         "name": "PROJECT_MANAGER",
-        "file": "langstuff_multi_agent/agents/project_manager.py",
+        "file": "agents/project_manager.py",
         "description": "Agent responsible for managing project timelines and tasks."
       },
       {
         "name": "PROFESSIONAL_COACH",
-        "file": "langstuff_multi_agent/agents/professional_coach.py",
+        "file": "agents/professional_coach.py",
         "description": "Agent providing professional and career guidance."
       },
       {
         "name": "LIFE_COACH",
-        "file": "langstuff_multi_agent/agents/life_coach.py",
+        "file": "agents/life_coach.py",
         "description": "Agent providing lifestyle and personal advice."
       },
       {
         "name": "CODER",
-        "file": "langstuff_multi_agent/agents/coder.py",
+        "file": "agents/coder.py",
         "description": "Agent that assists with coding tasks."
       },
       {
         "name": "ANALYST",
-        "file": "langstuff_multi_agent/agents/analyst.py",
+        "file": "agents/analyst.py",
         "description": "Agent specializing in data analysis."
       },
       {
         "name": "RESEARCHER",
-        "file": "langstuff_multi_agent/agents/researcher.py",
+        "file": "agents/researcher.py",
         "description": "Agent that gathers and summarizes research and news."
       },
       {
         "name": "GENERAL_ASSISTANT",
-        "file": "langstuff_multi_agent/agents/general_assistant.py",
+        "file": "agents/general_assistant.py",
         "description": "Agent for general queries and assistance."
       }
     ],
     "dependencies": [
-      "langgraph",
-      "langchain-anthropic",
-      "langchain-core",
-      "langchain-openai",
-      "python-dotenv"
+      "langgraph>=0.0.20",
+      "langchain-anthropic>=0.0.10",
+      "langchain-core>=0.1.20",
+      "langchain-openai>=0.0.5",
+      "python-dotenv>=1.0.0"
     ],
     "configuration": {
       "xai_api_key": "${XAI_API_KEY}",
