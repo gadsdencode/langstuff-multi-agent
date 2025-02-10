@@ -147,9 +147,15 @@ def route_request(state, config):
 # Add the routing node with configuration support
 supervisor_workflow.add_node("route", route_request)
 
+# Add nodes for each agent
+for agent_name, workflow in workflow_map.items():
+    supervisor_workflow.add_node(agent_name.lower(), workflow.compile())
+
 # Define edges
 supervisor_workflow.add_edge(START, "route")
-supervisor_workflow.add_edge("route", END)
+for agent_name in workflow_map.keys():
+    supervisor_workflow.add_edge("route", agent_name.lower())
+    supervisor_workflow.add_edge(agent_name.lower(), END)
 
 # Export the workflow
 __all__ = ["supervisor_workflow"]
