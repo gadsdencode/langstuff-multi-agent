@@ -32,7 +32,7 @@ class Config:
         raise ValueError("Environment variable 'ANTHROPIC_API_KEY' is required but not set.")
 
     # Default model settings.
-    DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-3-5-sonnet-20240620")
+    DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "grok-2-1212")
     DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", 0))
 
     # AI Provider: options are "anthropic", "openai", or "grok" (or "xai"). Default is "anthropic".
