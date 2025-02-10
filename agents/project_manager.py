@@ -6,7 +6,7 @@
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from my_agent.utils.tools import search_web, calendar_tool, task_tracker_tool
+from langstuff_multi_agent.utils.tools import search_web, calendar_tool, task_tracker_tool
 from langchain_anthropic import ChatAnthropic
 
 project_manager_workflow = StateGraph(MessagesState)

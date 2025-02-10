@@ -6,7 +6,7 @@
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from my_agent.utils.tools import search_web, get_current_weather, calendar_tool
+from langstuff_multi_agent.utils.tools import search_web, get_current_weather, calendar_tool
 from langchain_anthropic import ChatAnthropic
 
 life_coach_workflow = StateGraph(MessagesState)

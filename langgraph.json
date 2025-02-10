@@ -50,8 +50,16 @@
         "description": "Agent for general queries and assistance."
       }
     ],
+    "dependencies": [
+      "langgraph",
+      "langchain-anthropic",
+      "langchain-core",
+      "langchain-openai",
+      "langstuff_multi_agent"
+    ],
     "configuration": {
       "anthropic_api_key": "${ANTHROPIC_API_KEY}",
+
       "default_model": "claude-2",
       "default_temperature": 0,
       "checkpointer": "MemorySaver",

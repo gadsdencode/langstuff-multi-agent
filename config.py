@@ -1,10 +1,11 @@
-# my_agent/config.py
+# config.py
 """
 Configuration settings for the LangGraph multi-agent AI project.
 
 This file reads critical configuration values from environment variables,
 provides default settings, initializes logging, sets up a persistent checkpoint
 instance using MemorySaver, and exposes a factory function (get_llm) that returns
+
 an LLM instance based on the chosen AI provider (anthropic, openai, or grok/xai).
 
 Supported providers:
@@ -20,8 +21,6 @@ from langgraph.checkpoint.memory import MemorySaver
 # Import provider libraries.
 from langchain_anthropic import ChatAnthropic
 from langchain.chat_models import ChatOpenAI
-
-# For demonstration, if using XAI/Grok, we use ChatOpenAI with custom settings.
 
 
 class Config:

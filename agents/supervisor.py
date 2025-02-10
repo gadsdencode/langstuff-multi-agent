@@ -2,19 +2,19 @@
 """
 Supervisor Agent module for integrating and routing individual LangGraph agent workflows.
 
-This module uses an LLM—instantiated via the get_llm() factory function from config.py—to
-classify incoming user requests and dynamically route the request to the appropriate
-specialized agent workflow. The available agents include:
+This module uses an LLM—instantiated via the get_llm() factory function from
+langstuff_multi_agent/config.py—to classify incoming user requests and dynamically
+route the request to the appropriate specialized agent workflow. The available agents include:
   DEBUGGER, CONTEXT_MANAGER, PROJECT_MANAGER, PROFESSIONAL_COACH, LIFE_COACH, CODER,
   ANALYST, RESEARCHER, and GENERAL_ASSISTANT.
 
-Each agent workflow is compiled with persistent checkpointing enabled by passing the shared
-checkpointer (Config.PERSISTENT_CHECKPOINTER) during compilation.
+Each agent workflow is compiled with persistent checkpointing enabled by explicitly
+passing the shared checkpointer (Config.PERSISTENT_CHECKPOINTER) during compilation.
 """
 
 from langgraph.graph import START, END
 from langchain_core.messages import HumanMessage
-from my_agent.config import Config, get_llm
+from langstuff_multi_agent.config import Config, get_llm
 
 # Import individual workflows.
 from debugger import debugger_workflow
@@ -37,7 +37,7 @@ compiled_workflows = {
     "CODER": coder_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
     "ANALYST": analyst_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
     "RESEARCHER": researcher_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
-    "GENERAL_ASSISTANT": general_assistant_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
+    "GENERAL_ASSISTANT": general_assistant_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER)
 }
 
 # Define the available agent options.
@@ -50,10 +50,10 @@ AGENT_OPTIONS = [
     "CODER",
     "ANALYST",
     "RESEARCHER",
-    "GENERAL_ASSISTANT",
+    "GENERAL_ASSISTANT"
 ]
 
-# Instantiate a classification LLM using get_llm() from config.py.
+# Instantiate a classification LLM using the get_llm() factory.
 supervisor_llm = get_llm()
 
 
@@ -87,8 +87,9 @@ class SupervisorAgent:
             "You are a Supervisor Agent tasked with routing user requests to the most appropriate specialized agent. "
             "The available agents are: " + ", ".join(AGENT_OPTIONS) + ".\n\n"
             "Given the user request below, select the best-suited agent to handle it. "
-            "Respond with exactly one of the following options (case-insensitive): DEBUGGER, CONTEXT_MANAGER, "
-            "PROJECT_MANAGER, PROFESSIONAL_COACH, LIFE_COACH, CODER, ANALYST, RESEARCHER, GENERAL_ASSISTANT.\n\n"
+            "Respond with exactly one of the following options (case-insensitive): "
+            "DEBUGGER, CONTEXT_MANAGER, PROJECT_MANAGER, PROFESSIONAL_COACH, LIFE_COACH, "
+            "CODER, ANALYST, RESEARCHER, GENERAL_ASSISTANT.\n\n"
             f"User Request: \"{user_request}\"\n\n"
             "Your answer:"
         )
@@ -105,19 +106,12 @@ class SupervisorAgent:
         :param user_request: The user's query.
         :return: The final response from the chosen agent.
         """
-        # Build the initial state with the user's message.
         state = {"messages": [HumanMessage(content=user_request)]}
-
-        # Classify the request to choose the appropriate agent.
         agent_key = self.classify_request(user_request)
         print(f"Supervisor routed the request to: {agent_key}")
-
-        # Retrieve the corresponding workflow.
         workflow = self.workflows.get(agent_key)
         if not workflow:
             return "Error: No workflow available for the selected agent."
-
-        # Invoke the agent workflow with the input state.
         result_state = workflow.invoke(state)
         if result_state.get("messages"):
             final_message = result_state["messages"][-1]
@@ -127,12 +121,8 @@ class SupervisorAgent:
 
 
 if __name__ == "__main__":
-    # Create an instance of SupervisorAgent with the compiled workflows.
     supervisor_agent = SupervisorAgent(compiled_workflows, supervisor_llm)
-
-    # Accept a user request from standard input.
     user_request = input("User Request: ")
     agent_response = supervisor_agent.handle_request(user_request)
-
     print("\nAgent Response:")
     print(agent_response)
