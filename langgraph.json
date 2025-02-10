@@ -4,77 +4,101 @@
     "description": "Configuration for deploying the LangGraph multi-agent AI project via LangGraph Studio.",
     "entry_point": "./langstuff_multi_agent/agent.py:graph",
     "graphs": {
-      "main": "./langstuff_multi_agent/agent.py:graph"
+        "main": "./langstuff_multi_agent/agent.py:graph",
+        "debugger": "./langstuff_multi_agent/agent.py:debugger_graph",
+        "context_manager": "./langstuff_multi_agent/agent.py:context_manager_graph",
+        "project_manager": "./langstuff_multi_agent/agent.py:project_manager_graph",
+        "professional_coach": "./langstuff_multi_agent/agent.py:professional_coach_graph",
+        "life_coach": "./langstuff_multi_agent/agent.py:life_coach_graph",
+        "coder": "./langstuff_multi_agent/agent.py:coder_graph",
+        "analyst": "./langstuff_multi_agent/agent.py:analyst_graph",
+        "researcher": "./langstuff_multi_agent/agent.py:researcher_graph",
+        "general_assistant": "./langstuff_multi_agent/agent.py:general_assistant_graph"
     },
     "agents": [
-      {
-        "name": "DEBUGGER",
-        "file": "agents/debugger.py",
-        "description": "Agent responsible for debugging code."
-      },
-      {
-        "name": "CONTEXT_MANAGER",
-        "file": "agents/context_manager.py",
-        "description": "Agent responsible for managing conversation context."
-      },
-      {
-        "name": "PROJECT_MANAGER",
-        "file": "agents/project_manager.py",
-        "description": "Agent responsible for managing project timelines and tasks."
-      },
-      {
-        "name": "PROFESSIONAL_COACH",
-        "file": "agents/professional_coach.py",
-        "description": "Agent providing professional and career guidance."
-      },
-      {
-        "name": "LIFE_COACH",
-        "file": "agents/life_coach.py",
-        "description": "Agent providing lifestyle and personal advice."
-      },
-      {
-        "name": "CODER",
-        "file": "agents/coder.py",
-        "description": "Agent that assists with coding tasks."
-      },
-      {
-        "name": "ANALYST",
-        "file": "agents/analyst.py",
-        "description": "Agent specializing in data analysis."
-      },
-      {
-        "name": "RESEARCHER",
-        "file": "agents/researcher.py",
-        "description": "Agent that gathers and summarizes research and news."
-      },
-      {
-        "name": "GENERAL_ASSISTANT",
-        "file": "agents/general_assistant.py",
-        "description": "Agent for general queries and assistance."
-      }
+        {
+            "name": "SUPERVISOR",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "main",
+            "description": "Main supervisor agent that routes requests to specialized agents."
+        },
+        {
+            "name": "DEBUGGER",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "debugger",
+            "description": "Agent responsible for debugging code."
+        },
+        {
+            "name": "CONTEXT_MANAGER",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "context_manager",
+            "description": "Agent responsible for managing conversation context."
+        },
+        {
+            "name": "PROJECT_MANAGER",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "project_manager",
+            "description": "Agent responsible for managing project timelines and tasks."
+        },
+        {
+            "name": "PROFESSIONAL_COACH",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "professional_coach",
+            "description": "Agent providing professional and career guidance."
+        },
+        {
+            "name": "LIFE_COACH",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "life_coach",
+            "description": "Agent providing lifestyle and personal advice."
+        },
+        {
+            "name": "CODER",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "coder",
+            "description": "Agent that assists with coding tasks."
+        },
+        {
+            "name": "ANALYST",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "analyst",
+            "description": "Agent specializing in data analysis."
+        },
+        {
+            "name": "RESEARCHER",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "researcher",
+            "description": "Agent that gathers and summarizes research and news."
+        },
+        {
+            "name": "GENERAL_ASSISTANT",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "general_assistant",
+            "description": "Agent for general queries and assistance."
+        }
     ],
     "dependencies": [
-      "langgraph>=0.0.20",
-      "langchain-anthropic>=0.0.10",
-      "langchain-core>=0.1.20",
-      "langchain-openai>=0.0.5",
-      "python-dotenv>=1.0.0",
-      "tavily-python>=0.5.1",
-      "langchain_community>=0.3.17",
-      "./langstuff_multi_agent"
+        "langgraph>=0.0.20",
+        "langchain-anthropic>=0.0.10",
+        "langchain-core>=0.1.20",
+        "langchain-openai>=0.0.5",
+        "python-dotenv>=1.0.0",
+        "tavily-python>=0.5.1",
+        "langchain_community>=0.3.17",
+        "./langstuff_multi_agent"
     ],
     "configuration": {
-      "xai_api_key": "${XAI_API_KEY}",
-      "anthropic_api_key": "${ANTHROPIC_API_KEY}",
-      "openai_api_key": "${OPENAI_API_KEY}",
-      "tavily_api_key": "${TAVILY_API_KEY}",
-      "default_model": "grok-2-1212",
-      "default_temperature": 0.4,
-      "checkpointer": "MemorySaver",
-      "logging": {
-        "level": "INFO",
-        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-      }
+        "xai_api_key": "${XAI_API_KEY}",
+        "anthropic_api_key": "${ANTHROPIC_API_KEY}",
+        "openai_api_key": "${OPENAI_API_KEY}",
+        "tavily_api_key": "${TAVILY_API_KEY}",
+        "default_model": "gpt-4-turbo-preview",
+        "default_temperature": 0.0,
+        "checkpointer": "MemorySaver",
+        "logging": {
+            "level": "INFO",
+            "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        }
     }
-  }
+}
   
