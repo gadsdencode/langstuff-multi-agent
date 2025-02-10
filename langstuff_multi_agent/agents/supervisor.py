@@ -16,7 +16,7 @@ by explicitly passing the shared checkpointer
 """
 
 from langgraph.graph import StateGraph, MessagesState, START, END
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langstuff_multi_agent.config import Config, get_llm
 
 # Import individual workflows.
@@ -51,18 +51,18 @@ from langstuff_multi_agent.agents.general_assistant import (
 # Create supervisor workflow
 supervisor_workflow = StateGraph(MessagesState)
 
-# Define the available agent options.
-AGENT_OPTIONS = [
-    "DEBUGGER",
-    "CONTEXT_MANAGER",
-    "PROJECT_MANAGER",
-    "PROFESSIONAL_COACH",
-    "LIFE_COACH",
-    "CODER",
-    "ANALYST",
-    "RESEARCHER",
-    "GENERAL_ASSISTANT"
-]
+# Define the available agent options with descriptions
+AGENT_OPTIONS = {
+    "DEBUGGER": "Code debugging and error analysis",
+    "CONTEXT_MANAGER": "Conversation context tracking and management",
+    "PROJECT_MANAGER": "Project timeline and task management",
+    "PROFESSIONAL_COACH": "Career advice and job search strategies",
+    "LIFE_COACH": "Personal development and lifestyle guidance",
+    "CODER": "Code writing and improvement",
+    "ANALYST": "Data analysis and interpretation",
+    "RESEARCHER": "Information gathering and research",
+    "GENERAL_ASSISTANT": "General purpose assistance"
+}
 
 # Map agent names to their workflows
 workflow_map = {
@@ -80,25 +80,68 @@ workflow_map = {
 # Get supervisor LLM
 supervisor_llm = get_llm()
 
-# Define the supervisor node
-def route_request(state):
-    """Route the user request to appropriate agent workflow"""
-    request = state["messages"][-1].content
-    prompt = (
-        "You are a Supervisor Agent tasked with routing user requests to the most appropriate specialized agent. "
-        f"Available agents: {', '.join(AGENT_OPTIONS)}.\n\n"
-        f"Given the request: '{request}'\n"
-        "Select exactly one agent (case-insensitive). Your answer:"
-    )
-    response = supervisor_llm.invoke([HumanMessage(content=prompt)])
-    agent_key = response.content.strip().upper()
-    if agent_key not in AGENT_OPTIONS:
-        agent_key = "GENERAL_ASSISTANT"
-    
-    workflow = workflow_map[agent_key].compile()
-    result = workflow.invoke({"messages": [HumanMessage(content=request)]})
-    return {"messages": result["messages"]}
+def format_agent_list():
+    """Format the agent list with descriptions for the prompt."""
+    return "\n".join(f"- {name}: {desc}" for name, desc in AGENT_OPTIONS.items())
 
+def route_request(state):
+    """Route the user request to appropriate agent workflow with enhanced feedback."""
+    messages = state.get("messages", [])
+    if not messages:
+        return {
+            "messages": [
+                AIMessage(content="Welcome! I'm your AI assistant. How can I help you today?")
+            ]
+        }
+    
+    request = messages[-1].content
+    
+    # Create a detailed prompt for agent selection
+    prompt = (
+        "You are a Supervisor Agent tasked with routing user requests to the most appropriate specialized agent.\n\n"
+        "Available agents and their specialties:\n"
+        f"{format_agent_list()}\n\n"
+        f"User Request: '{request}'\n\n"
+        "Instructions:\n"
+        "1. Analyze the user's request carefully\n"
+        "2. Select the most appropriate agent based on their specialties\n"
+        "3. Respond with exactly one agent name from the list (case-insensitive)\n"
+        "4. If unsure, use GENERAL_ASSISTANT\n\n"
+        "Selected agent:"
+    )
+    
+    try:
+        # Get agent selection
+        response = supervisor_llm.invoke([SystemMessage(content=prompt)])
+        agent_key = response.content.strip().upper()
+        
+        if agent_key not in AGENT_OPTIONS:
+            agent_key = "GENERAL_ASSISTANT"
+        
+        # Compile and invoke the selected workflow
+        workflow = workflow_map[agent_key].compile()
+        result = workflow.invoke({"messages": [
+            SystemMessage(content=f"You are the {agent_key} agent, specialized in {AGENT_OPTIONS[agent_key]}."),
+            HumanMessage(content=request)
+        ]})
+        
+        # Add routing information to the response
+        return {
+            "messages": [
+                AIMessage(content=f"[Routing to {agent_key} - {AGENT_OPTIONS[agent_key]}]\n\n"),
+                *result["messages"]
+            ]
+        }
+        
+    except Exception as e:
+        return {
+            "messages": [
+                AIMessage(content=f"I apologize, but I encountered an error while processing your request: {str(e)}\n\n"
+                                "Please try rephrasing your request or contact support if the issue persists.")
+            ]
+        }
+
+# Add the routing node
 supervisor_workflow.add_node("route", route_request)
 
 # Define edges

@@ -33,27 +33,31 @@ class Config:
         raise ValueError("Environment variable 'ANTHROPIC_API_KEY' is required but not set.")
 
     # Default model settings.
-    DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "grok-2-1212")
+    DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
     DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", 0))
+
 
     # AI Provider: options are "anthropic", "openai", or "grok" (or "xai"). Default is "anthropic".
     AI_PROVIDER = os.environ.get("AI_PROVIDER", "xai").lower()
 
     # Logging configuration.
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
-    LOG_FORMAT = os.environ.get("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
     # Persistent checkpointer instance for use across workflows.
     PERSISTENT_CHECKPOINTER = MemorySaver()
 
     # Model settings
-    MODEL_NAME = "gpt-4-turbo-preview"
+    MODEL_NAME = "gpt-4o-mini"  # Using GPT-4o-mini for best tool use support
     TEMPERATURE = 0.0
     TOP_P = 0.1
-    MAX_TOKENS = 2000
+    MAX_TOKENS = 4000  # Increased for better response handling
+
+
 
     @classmethod
     def init_logging(cls):
+        """Initialize logging with configured settings."""
         logging.basicConfig(level=cls.LOG_LEVEL, format=cls.LOG_FORMAT)
         logging.info("Logging initialized at level: %s", cls.LOG_LEVEL)
 
@@ -77,22 +81,22 @@ def get_llm(
     max_tokens: Optional[int] = None
 ) -> BaseChatModel:
     """
-    Factory function to create a language model instance.
+    Factory function to create a GPT-4o-mini language model instance.
     
     Args:
-        model_name: Name of the model to use
+        model_name: Name of the model to use (defaults to GPT-4o-mini)
         temperature: Temperature parameter for generation
         top_p: Top-p parameter for generation
         max_tokens: Maximum tokens to generate
         
+
     Returns:
-        An instance of BaseChatModel
+        An instance of BaseChatModel configured for GPT-4o-mini
     """
-    model = ChatOpenAI(
+    return ChatOpenAI(
         model_name=model_name or Config.MODEL_NAME,
         temperature=temperature or Config.TEMPERATURE,
         top_p=top_p or Config.TOP_P,
         max_tokens=max_tokens or Config.MAX_TOKENS,
         api_key=Config.get_api_key()
     )
-    return model
