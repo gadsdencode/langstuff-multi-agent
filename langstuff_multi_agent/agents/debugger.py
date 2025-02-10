@@ -15,20 +15,21 @@ from langstuff_multi_agent.utils.tools import (
     write_file
 )
 from langchain_anthropic import ChatAnthropic
+from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-debugger_workflow = StateGraph(MessagesState)
+debugger_workflow = StateGraph(MessagesState, ConfigSchema)
 
 # Define the tools available to the Debugger Agent
 tools = [search_web, python_repl, read_file, write_file]
 tool_node = ToolNode(tools)
 
-# Define the LLM and bind the tools to it
-llm = ChatAnthropic(model="claude-2", temperature=0).bind_tools(tools)
-
-# Define the main agent node with a system prompt detailing the agent's role and instructions
-debugger_workflow.add_node(
-    "analyze_code",
-    lambda state: {
+def analyze_code(state, config):
+    """Analyze code and identify errors with configuration support."""
+    # Get LLM with configuration
+    llm = get_llm(config.get("configurable", {}))
+    llm = llm.bind_tools(tools)
+    
+    return {
         "messages": [
             llm.invoke(
                 state["messages"] + [
@@ -52,8 +53,10 @@ debugger_workflow.add_node(
                 ]
             )
         ]
-    },
-)
+    }
+
+# Define the main agent node with configuration support
+debugger_workflow.add_node("analyze_code", analyze_code)
 debugger_workflow.add_node("tools", tool_node)
 
 # Define the control flow edges:
@@ -76,5 +79,5 @@ debugger_workflow.add_conditional_edges(
 # Add edge from tools back to analyze_code
 debugger_workflow.add_edge("tools", "analyze_code")
 
-# The debugger_workflow is now complete.
-# :contentReference[oaicite:0]{index=0}
+# Export the workflow
+__all__ = ["debugger_workflow"]

@@ -14,20 +14,21 @@ from langstuff_multi_agent.utils.tools import (
     task_tracker_tool
 )
 from langchain_anthropic import ChatAnthropic
+from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-project_manager_workflow = StateGraph(MessagesState)
+project_manager_workflow = StateGraph(MessagesState, ConfigSchema)
 
 # Define project management tools
 tools = [search_web, calendar_tool, task_tracker_tool]
 tool_node = ToolNode(tools)
 
-# Bind the LLM with tools
-llm = ChatAnthropic(model="claude-2", temperature=0).bind_tools(tools)
-
-# Define the main node for managing projects with detailed instructions
-project_manager_workflow.add_node(
-    "manage_project",
-    lambda state: {
+def manage_project(state, config):
+    """Manage project with configuration support."""
+    # Get LLM with configuration
+    llm = get_llm(config.get("configurable", {}))
+    llm = llm.bind_tools(tools)
+    
+    return {
         "messages": [
             llm.invoke(
                 state["messages"] + [
@@ -49,8 +50,10 @@ project_manager_workflow.add_node(
                 ]
             )
         ]
-    },
-)
+    }
+
+# Define the main node with configuration support
+project_manager_workflow.add_node("manage_project", manage_project)
 project_manager_workflow.add_node("tools", tool_node)
 
 # Define control flow edges
@@ -68,3 +71,6 @@ project_manager_workflow.add_conditional_edges(
 
 # Add edge from tools back to manage_project
 project_manager_workflow.add_edge("tools", "manage_project")
+
+# Export the workflow
+__all__ = ["project_manager_workflow"]

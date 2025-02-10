@@ -10,20 +10,21 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import search_web, get_current_weather, calendar_tool
 from langchain_anthropic import ChatAnthropic
+from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-life_coach_workflow = StateGraph(MessagesState)
+life_coach_workflow = StateGraph(MessagesState, ConfigSchema)
 
 # Define tools for life coaching
 tools = [search_web, get_current_weather, calendar_tool]
 tool_node = ToolNode(tools)
 
-# Bind the LLM with tools
-llm = ChatAnthropic(model="claude-2", temperature=0).bind_tools(tools)
-
-# Define the main node with instructions for personal and lifestyle advice
-life_coach_workflow.add_node(
-    "life_coach",
-    lambda state: {
+def life_coach(state, config):
+    """Provide life coaching with configuration support."""
+    # Get LLM with configuration
+    llm = get_llm(config.get("configurable", {}))
+    llm = llm.bind_tools(tools)
+    
+    return {
         "messages": [
             llm.invoke(
                 state["messages"] + [
@@ -45,8 +46,10 @@ life_coach_workflow.add_node(
                 ]
             )
         ]
-    },
-)
+    }
+
+# Define the main node with configuration support
+life_coach_workflow.add_node("life_coach", life_coach)
 life_coach_workflow.add_node("tools", tool_node)
 
 # Define control flow edges
@@ -64,3 +67,6 @@ life_coach_workflow.add_conditional_edges(
 
 # Add edge from tools back to life_coach
 life_coach_workflow.add_edge("tools", "life_coach")
+
+# Export the workflow
+__all__ = ["life_coach_workflow"]

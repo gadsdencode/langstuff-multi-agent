@@ -14,21 +14,21 @@ from langstuff_multi_agent.utils.tools import (
     calc_tool
 )
 from langchain_anthropic import ChatAnthropic
+from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-
-analyst_workflow = StateGraph(MessagesState)
+analyst_workflow = StateGraph(MessagesState, ConfigSchema)
 
 # Define tools for analysis tasks
 tools = [search_web, python_repl, calc_tool]
 tool_node = ToolNode(tools)
 
-# Bind the LLM with analytical tools
-llm = ChatAnthropic(model="claude-2", temperature=0).bind_tools(tools)
-
-# Define the main node for data analysis with a detailed system prompt
-analyst_workflow.add_node(
-    "analyze_data",
-    lambda state: {
+def analyze_data(state, config):
+    """Analyze data with configuration support."""
+    # Get LLM with configuration
+    llm = get_llm(config.get("configurable", {}))
+    llm = llm.bind_tools(tools)
+    
+    return {
         "messages": [
             llm.invoke(
                 state["messages"] + [
@@ -49,8 +49,10 @@ analyst_workflow.add_node(
                 ]
             )
         ]
-    },
-)
+    }
+
+# Define the main node with configuration support
+analyst_workflow.add_node("analyze_data", analyze_data)
 analyst_workflow.add_node("tools", tool_node)
 
 # Define control flow edges
@@ -68,3 +70,6 @@ analyst_workflow.add_conditional_edges(
 
 # Add edge from tools back to analyze_data
 analyst_workflow.add_edge("tools", "analyze_data")
+
+# Export the workflow
+__all__ = ["analyst_workflow"]

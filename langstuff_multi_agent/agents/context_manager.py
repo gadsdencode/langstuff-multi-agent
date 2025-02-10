@@ -10,20 +10,21 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import search_web, read_file, write_file
 from langchain_anthropic import ChatAnthropic
+from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-context_manager_workflow = StateGraph(MessagesState)
+context_manager_workflow = StateGraph(MessagesState, ConfigSchema)
 
 # Define tools for context management
 tools = [search_web, read_file, write_file]
 tool_node = ToolNode(tools)
 
-# Bind the LLM with tools
-llm = ChatAnthropic(model="claude-2", temperature=0).bind_tools(tools)
-
-# Define the main node that manages context with a system prompt
-context_manager_workflow.add_node(
-    "manage_context",
-    lambda state: {
+def manage_context(state, config):
+    """Manage conversation context with configuration support."""
+    # Get LLM with configuration
+    llm = get_llm(config.get("configurable", {}))
+    llm = llm.bind_tools(tools)
+    
+    return {
         "messages": [
             llm.invoke(
                 state["messages"] + [
@@ -46,8 +47,10 @@ context_manager_workflow.add_node(
                 ]
             )
         ]
-    },
-)
+    }
+
+# Define the main node with configuration support
+context_manager_workflow.add_node("manage_context", manage_context)
 context_manager_workflow.add_node("tools", tool_node)
 
 # Define the control flow edges
@@ -65,3 +68,6 @@ context_manager_workflow.add_conditional_edges(
 
 # Add edge from tools back to manage_context
 context_manager_workflow.add_edge("tools", "manage_context")
+
+# Export the workflow
+__all__ = ["context_manager_workflow"]

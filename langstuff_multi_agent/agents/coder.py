@@ -10,20 +10,21 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import search_web, python_repl, read_file, write_file
 from langchain_anthropic import ChatAnthropic
+from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-coder_workflow = StateGraph(MessagesState)
+coder_workflow = StateGraph(MessagesState, ConfigSchema)
 
 # Define tools for coding tasks
 tools = [search_web, python_repl, read_file, write_file]
 tool_node = ToolNode(tools)
 
-# Bind the LLM with the coding tools
-llm = ChatAnthropic(model="claude-2", temperature=0).bind_tools(tools)
-
-# Define the main node for coding with a system prompt that guides code writing and debugging
-coder_workflow.add_node(
-    "code",
-    lambda state: {
+def code(state, config):
+    """Write and improve code with configuration support."""
+    # Get LLM with configuration
+    llm = get_llm(config.get("configurable", {}))
+    llm = llm.bind_tools(tools)
+    
+    return {
         "messages": [
             llm.invoke(
                 state["messages"] + [
@@ -45,8 +46,10 @@ coder_workflow.add_node(
                 ]
             )
         ]
-    },
-)
+    }
+
+# Define the main node with configuration support
+coder_workflow.add_node("code", code)
 coder_workflow.add_node("tools", tool_node)
 
 # Define control flow edges
@@ -64,3 +67,6 @@ coder_workflow.add_conditional_edges(
 
 # Add edge from tools back to code
 coder_workflow.add_edge("tools", "code")
+
+# Export the workflow
+__all__ = ["coder_workflow"]

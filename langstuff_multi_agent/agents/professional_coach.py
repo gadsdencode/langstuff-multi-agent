@@ -10,20 +10,21 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import search_web, job_search_tool
 from langchain_anthropic import ChatAnthropic
+from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-professional_coach_workflow = StateGraph(MessagesState)
+professional_coach_workflow = StateGraph(MessagesState, ConfigSchema)
 
 # Define the tools for professional coaching
 tools = [search_web, job_search_tool]
 tool_node = ToolNode(tools)
 
-# Bind the LLM with the available tools
-llm = ChatAnthropic(model="claude-2", temperature=0).bind_tools(tools)
-
-# Define the main node with a system prompt for career guidance
-professional_coach_workflow.add_node(
-    "coach",
-    lambda state: {
+def coach(state, config):
+    """Provide professional coaching with configuration support."""
+    # Get LLM with configuration
+    llm = get_llm(config.get("configurable", {}))
+    llm = llm.bind_tools(tools)
+    
+    return {
         "messages": [
             llm.invoke(
                 state["messages"] + [
@@ -44,8 +45,10 @@ professional_coach_workflow.add_node(
                 ]
             )
         ]
-    },
-)
+    }
+
+# Define the main node with configuration support
+professional_coach_workflow.add_node("coach", coach)
 professional_coach_workflow.add_node("tools", tool_node)
 
 # Define control flow edges
@@ -63,3 +66,6 @@ professional_coach_workflow.add_conditional_edges(
 
 # Add edge from tools back to coach
 professional_coach_workflow.add_edge("tools", "coach")
+
+# Export the workflow
+__all__ = ["professional_coach_workflow"]

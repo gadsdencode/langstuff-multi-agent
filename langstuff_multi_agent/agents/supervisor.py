@@ -17,7 +17,7 @@ by explicitly passing the shared checkpointer
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-from langstuff_multi_agent.config import Config, get_llm
+from langstuff_multi_agent.config import Config, get_llm, ConfigSchema, create_model_config
 
 # Import individual workflows.
 from langstuff_multi_agent.agents.debugger import (
@@ -48,8 +48,8 @@ from langstuff_multi_agent.agents.general_assistant import (
     general_assistant_workflow
 )
 
-# Create supervisor workflow
-supervisor_workflow = StateGraph(MessagesState)
+# Create supervisor workflow with configuration schema
+supervisor_workflow = StateGraph(MessagesState, ConfigSchema)
 
 # Define the available agent options with descriptions
 AGENT_OPTIONS = {
@@ -77,14 +77,11 @@ workflow_map = {
     "GENERAL_ASSISTANT": general_assistant_workflow
 }
 
-# Get supervisor LLM
-supervisor_llm = get_llm()
-
 def format_agent_list():
     """Format the agent list with descriptions for the prompt."""
     return "\n".join(f"- {name}: {desc}" for name, desc in AGENT_OPTIONS.items())
 
-def route_request(state):
+def route_request(state, config):
     """Route the user request to appropriate agent workflow with enhanced feedback."""
     messages = state.get("messages", [])
     if not messages:
@@ -111,6 +108,9 @@ def route_request(state):
     )
     
     try:
+        # Get supervisor LLM with configuration
+        supervisor_llm = get_llm(config.get("configurable", {}))
+        
         # Get agent selection
         response = supervisor_llm.invoke([SystemMessage(content=prompt)])
         agent_key = response.content.strip().upper()
@@ -118,12 +118,15 @@ def route_request(state):
         if agent_key not in AGENT_OPTIONS:
             agent_key = "GENERAL_ASSISTANT"
         
-        # Compile and invoke the selected workflow
+        # Compile and invoke the selected workflow with configuration
         workflow = workflow_map[agent_key].compile()
-        result = workflow.invoke({"messages": [
-            SystemMessage(content=f"You are the {agent_key} agent, specialized in {AGENT_OPTIONS[agent_key]}."),
-            HumanMessage(content=request)
-        ]})
+        result = workflow.invoke(
+            {"messages": [
+                SystemMessage(content=f"You are the {agent_key} agent, specialized in {AGENT_OPTIONS[agent_key]}."),
+                HumanMessage(content=request)
+            ]},
+            config=config
+        )
         
         # Add routing information to the response
         return {
@@ -141,7 +144,7 @@ def route_request(state):
             ]
         }
 
-# Add the routing node
+# Add the routing node with configuration support
 supervisor_workflow.add_node("route", route_request)
 
 # Define edges

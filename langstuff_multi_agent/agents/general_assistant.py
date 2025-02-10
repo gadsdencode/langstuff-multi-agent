@@ -10,20 +10,21 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import search_web, get_current_weather
 from langchain_anthropic import ChatAnthropic
+from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-general_assistant_workflow = StateGraph(MessagesState)
+general_assistant_workflow = StateGraph(MessagesState, ConfigSchema)
 
 # Define general assistant tools
 tools = [search_web, get_current_weather]
 tool_node = ToolNode(tools)
 
-# Bind the LLM with the general assistant tools
-llm = ChatAnthropic(model="claude-2", temperature=0).bind_tools(tools)
-
-# Define the main node with a system prompt for general assistance
-general_assistant_workflow.add_node(
-    "assist",
-    lambda state: {
+def assist(state, config):
+    """Provide general assistance with configuration support."""
+    # Get LLM with configuration
+    llm = get_llm(config.get("configurable", {}))
+    llm = llm.bind_tools(tools)
+    
+    return {
         "messages": [
             llm.invoke(
                 state["messages"] + [
@@ -43,8 +44,10 @@ general_assistant_workflow.add_node(
                 ]
             )
         ]
-    },
-)
+    }
+
+# Define the main node with configuration support
+general_assistant_workflow.add_node("assist", assist)
 general_assistant_workflow.add_node("tools", tool_node)
 
 # Define control flow edges
@@ -62,3 +65,6 @@ general_assistant_workflow.add_conditional_edges(
 
 # Add edge from tools back to assist
 general_assistant_workflow.add_edge("tools", "assist")
+
+# Export the workflow
+__all__ = ["general_assistant_workflow"]
