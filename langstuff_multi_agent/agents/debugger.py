@@ -65,13 +65,13 @@ debugger_workflow.add_edge(START, "analyze_code")
 debugger_workflow.add_edge(
     "analyze_code",
     "tools",
-    condition=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )
 debugger_workflow.add_edge("tools", "analyze_code")
 debugger_workflow.add_edge(
     "analyze_code",
     END,
-    condition=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )
 
 # The debugger_workflow is now complete.

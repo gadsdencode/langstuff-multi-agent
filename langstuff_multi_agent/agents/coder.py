@@ -54,11 +54,11 @@ coder_workflow.add_edge(START, "code")
 coder_workflow.add_edge(
     "code",
     "tools",
-    condition=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )
 coder_workflow.add_edge("tools", "code")
 coder_workflow.add_edge(
     "code",
     END,
-    condition=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )

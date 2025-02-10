@@ -58,11 +58,11 @@ analyst_workflow.add_edge(START, "analyze_data")
 analyst_workflow.add_edge(
     "analyze_data",
     "tools",
-    condition=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )
 analyst_workflow.add_edge("tools", "analyze_data")
 analyst_workflow.add_edge(
     "analyze_data",
     END,
-    condition=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )

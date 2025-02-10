@@ -52,11 +52,11 @@ general_assistant_workflow.add_edge(START, "assist")
 general_assistant_workflow.add_edge(
     "assist",
     "tools",
-    condition=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )
 general_assistant_workflow.add_edge("tools", "assist")
 general_assistant_workflow.add_edge(
     "assist",
     END,
-    condition=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )

@@ -53,11 +53,11 @@ professional_coach_workflow.add_edge(START, "coach")
 professional_coach_workflow.add_edge(
     "coach",
     "tools",
-    condition=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )
 professional_coach_workflow.add_edge("tools", "coach")
 professional_coach_workflow.add_edge(
     "coach",
     END,
-    condition=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )

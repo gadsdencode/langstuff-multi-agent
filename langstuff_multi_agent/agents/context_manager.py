@@ -55,11 +55,11 @@ context_manager_workflow.add_edge(START, "manage_context")
 context_manager_workflow.add_edge(
     "manage_context",
     "tools",
-    condition=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )
 context_manager_workflow.add_edge("tools", "manage_context")
 context_manager_workflow.add_edge(
     "manage_context",
     END,
-    condition=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    if_=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
 )
