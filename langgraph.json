@@ -57,8 +57,7 @@
       "langgraph",
       "langchain-anthropic",
       "langchain-core",
-      "langchain-openai",
-      "langstuff_multi_agent"
+      "langchain-openai"
     ],
     "configuration": {
       "xai_api_key": "${XAI_API_KEY}",
