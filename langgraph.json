@@ -4,7 +4,7 @@
     "description": "Configuration for deploying the LangGraph multi-agent AI project via LangGraph Studio.",
     "entry_point": "main.py",
     "graphs": {
-      "supervisor": "agents/supervisor.py"
+      "supervisor": "agents.supervisor:graph"
     },
     "agents": [
       {
