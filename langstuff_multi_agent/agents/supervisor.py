@@ -147,9 +147,23 @@ def route_request(state, config):
 # Add the routing node with configuration support
 supervisor_workflow.add_node("route", route_request)
 
-# Add nodes for each agent
+# Add nodes for each agent with proper configuration
 for agent_name, workflow in workflow_map.items():
-    supervisor_workflow.add_node(agent_name.lower(), workflow.compile())
+    # Create a wrapper function to ensure configuration is passed correctly
+    def create_agent_node(agent_workflow, agent_name):
+        def agent_node(state, config):
+            # Compile the workflow with configuration
+            compiled_workflow = agent_workflow.compile()
+            # Execute the workflow with the current state and config
+            result = compiled_workflow.invoke(state, config=config)
+            return result
+        return agent_node
+    
+    # Add the node with the wrapped function
+    supervisor_workflow.add_node(
+        agent_name.lower(),
+        create_agent_node(workflow, agent_name)
+    )
 
 # Define edges
 supervisor_workflow.add_edge(START, "route")
