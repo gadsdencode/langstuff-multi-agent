@@ -2,9 +2,9 @@
     "version": "1.0",
     "project": "LangGraph Multi-Agent AI",
     "description": "Configuration for deploying the LangGraph multi-agent AI project via LangGraph Studio.",
-    "entry_point": "langstuff_multi_agent.main:main",
+    "entry_point": "main:main",
     "graphs": {
-      "supervisor": "langstuff_multi_agent.agents.supervisor:graph"
+      "supervisor": "agents.supervisor:supervisor_workflow"
     },
     "agents": [
       {

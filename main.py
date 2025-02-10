@@ -7,14 +7,14 @@ This script initializes the system by loading configuration from config.py
 SupervisorAgent to process incoming user requests.
 """
 
-from langstuff_multi_agent.config import Config
-from langstuff_multi_agent.agents.supervisor import SupervisorAgent, compiled_workflows, supervisor_llm
+from config import Config
+from agents.supervisor import SupervisorAgent, compiled_workflows, supervisor_llm
 
 
 def main():
     print("Welcome to the LangGraph Multi-Agent AI System!")
     # Access a config value to confirm the configuration is loaded.
-    print(f"Configuration loaded: Using model {Config.DEFAULT_MODEL} at temperature {Config.DEFAULT_TEMPERATURE}")
+    print(f"Configuration loaded: Using model {Config.DEFAULT_MODEL}")
 
     user_request = input("Please enter your request: ")
 
