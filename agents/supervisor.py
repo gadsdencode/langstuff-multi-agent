@@ -2,22 +2,19 @@
 """
 Supervisor Agent module for integrating and routing individual LangGraph agent workflows.
 
-This module uses ChatAnthropic (Claude‑2) to classify incoming user requests and dynamically
-routes the request to the appropriate specialized agent workflow. The available agents include:
+This module uses an LLM—instantiated via the get_llm() factory function from config.py—to
+classify incoming user requests and dynamically route the request to the appropriate
+specialized agent workflow. The available agents include:
   DEBUGGER, CONTEXT_MANAGER, PROJECT_MANAGER, PROFESSIONAL_COACH, LIFE_COACH, CODER,
   ANALYST, RESEARCHER, and GENERAL_ASSISTANT.
 
-Each agent workflow is compiled and stored in a dictionary. The SupervisorAgent uses a
-classification prompt to decide which agent best fits the user's request, invokes that
-workflow with the user's message, and returns the final response.
-
-Reference: LangGraph documentation and examples (&#8203;:contentReference[oaicite:0]{index=0}).
+Each agent workflow is compiled with persistent checkpointing enabled by passing the shared
+checkpointer (Config.PERSISTENT_CHECKPOINTER) during compilation.
 """
 
-import os
 from langgraph.graph import START, END
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
+from my_agent.config import Config, get_llm
 
 # Import individual workflows.
 from debugger import debugger_workflow
@@ -30,17 +27,17 @@ from agents.analyst import analyst_workflow
 from agents.researcher import researcher_workflow
 from agents.general_assistant import general_assistant_workflow
 
-# Compile each workflow to obtain runnable instances.
+# Compile each workflow with the persistent checkpointer.
 compiled_workflows = {
-    "DEBUGGER": debugger_workflow.compile(),
-    "CONTEXT_MANAGER": context_manager_workflow.compile(),
-    "PROJECT_MANAGER": project_manager_workflow.compile(),
-    "PROFESSIONAL_COACH": professional_coach_workflow.compile(),
-    "LIFE_COACH": life_coach_workflow.compile(),
-    "CODER": coder_workflow.compile(),
-    "ANALYST": analyst_workflow.compile(),
-    "RESEARCHER": researcher_workflow.compile(),
-    "GENERAL_ASSISTANT": general_assistant_workflow.compile(),
+    "DEBUGGER": debugger_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
+    "CONTEXT_MANAGER": context_manager_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
+    "PROJECT_MANAGER": project_manager_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
+    "PROFESSIONAL_COACH": professional_coach_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
+    "LIFE_COACH": life_coach_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
+    "CODER": coder_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
+    "ANALYST": analyst_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
+    "RESEARCHER": researcher_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
+    "GENERAL_ASSISTANT": general_assistant_workflow.compile(checkpointer=Config.PERSISTENT_CHECKPOINTER),
 }
 
 # Define the available agent options.
@@ -56,8 +53,8 @@ AGENT_OPTIONS = [
     "GENERAL_ASSISTANT",
 ]
 
-# Instantiate a classification LLM with zero temperature for deterministic output.
-supervisor_llm = ChatAnthropic(model="claude-2", temperature=0)
+# Instantiate a classification LLM using get_llm() from config.py.
+supervisor_llm = get_llm()
 
 
 class SupervisorAgent:
@@ -80,7 +77,7 @@ class SupervisorAgent:
         """
         Classify the user request to select the best-suited agent.
 
-        Constructs a prompt that lists the available agents and asks the LLM to respond
+        Constructs a prompt listing the available agents and asks the LLM to respond
         with exactly one agent key (case-insensitive).
 
         :param user_request: The user's input request.
