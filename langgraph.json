@@ -2,9 +2,9 @@
     "version": "1.0",
     "project": "LangGraph Multi-Agent AI",
     "description": "Configuration for deploying the LangGraph multi-agent AI project via LangGraph Studio.",
-    "entry_point": "./langstuff-multi-agent/agent.py:graph",
+    "entry_point": "./langstuff_multi_agent/agent.py:graph",
     "graphs": {
-      "main": "./langstuff-multi-agent/agent.py:graph"
+      "main": "./langstuff_multi_agent/agent.py:graph"
     },
     "agents": [
       {
@@ -61,7 +61,7 @@
       "python-dotenv>=1.0.0",
       "tavily-python>=0.5.1",
       "langchain_community>=0.3.17",
-      "./langstuff-multi-agent"
+      "./langstuff_multi_agent"
     ],
     "configuration": {
       "xai_api_key": "${XAI_API_KEY}",
