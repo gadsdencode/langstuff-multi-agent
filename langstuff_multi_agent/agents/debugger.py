@@ -62,17 +62,19 @@ debugger_workflow.add_node("tools", tool_node)
 # 3. After running tools, loop back to 'analyze_code'.
 # 4. If no tool_calls remain, finish.
 debugger_workflow.add_edge(START, "analyze_code")
-debugger_workflow.add_edge(
+
+# Add conditional edge from analyze_code to either tools or END
+debugger_workflow.add_conditional_edges(
     "analyze_code",
-    "tools",
-    if_=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
+    {
+        "tools": "tools",
+        "END": END
+    }
 )
+
+# Add edge from tools back to analyze_code
 debugger_workflow.add_edge("tools", "analyze_code")
-debugger_workflow.add_edge(
-    "analyze_code",
-    END,
-    if_=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
-)
 
 # The debugger_workflow is now complete.
 # :contentReference[oaicite:0]{index=0}

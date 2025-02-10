@@ -47,14 +47,16 @@ researcher_workflow.add_node("tools", tool_node)
 
 # Define control flow edges
 researcher_workflow.add_edge(START, "research")
-researcher_workflow.add_edge(
+
+# Add conditional edge from research to either tools or END
+researcher_workflow.add_conditional_edges(
     "research",
-    "tools",
-    if_=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
+    {
+        "tools": "tools",
+        "END": END
+    }
 )
+
+# Add edge from tools back to research
 researcher_workflow.add_edge("tools", "research")
-researcher_workflow.add_edge(
-    "research",
-    END,
-    if_=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
-)

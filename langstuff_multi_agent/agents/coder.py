@@ -51,14 +51,16 @@ coder_workflow.add_node("tools", tool_node)
 
 # Define control flow edges
 coder_workflow.add_edge(START, "code")
-coder_workflow.add_edge(
+
+# Add conditional edge from code to either tools or END
+coder_workflow.add_conditional_edges(
     "code",
-    "tools",
-    if_=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
+    {
+        "tools": "tools",
+        "END": END
+    }
 )
+
+# Add edge from tools back to code
 coder_workflow.add_edge("tools", "code")
-coder_workflow.add_edge(
-    "code",
-    END,
-    if_=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
-)

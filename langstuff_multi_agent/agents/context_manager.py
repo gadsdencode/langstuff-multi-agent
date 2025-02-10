@@ -50,16 +50,18 @@ context_manager_workflow.add_node(
 )
 context_manager_workflow.add_node("tools", tool_node)
 
-# Define the control flow edges (mirroring the debugger workflow structure)
+# Define the control flow edges
 context_manager_workflow.add_edge(START, "manage_context")
-context_manager_workflow.add_edge(
+
+# Add conditional edge from manage_context to either tools or END
+context_manager_workflow.add_conditional_edges(
     "manage_context",
-    "tools",
-    if_=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
+    {
+        "tools": "tools",
+        "END": END
+    }
 )
+
+# Add edge from tools back to manage_context
 context_manager_workflow.add_edge("tools", "manage_context")
-context_manager_workflow.add_edge(
-    "manage_context",
-    END,
-    if_=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
-)

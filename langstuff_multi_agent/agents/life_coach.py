@@ -51,14 +51,16 @@ life_coach_workflow.add_node("tools", tool_node)
 
 # Define control flow edges
 life_coach_workflow.add_edge(START, "life_coach")
-life_coach_workflow.add_edge(
+
+# Add conditional edge from life_coach to either tools or END
+life_coach_workflow.add_conditional_edges(
     "life_coach",
-    "tools",
-    if_=lambda state: any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
+    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
+    {
+        "tools": "tools",
+        "END": END
+    }
 )
+
+# Add edge from tools back to life_coach
 life_coach_workflow.add_edge("tools", "life_coach")
-life_coach_workflow.add_edge(
-    "life_coach",
-    END,
-    if_=lambda state: not any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]),
-)
