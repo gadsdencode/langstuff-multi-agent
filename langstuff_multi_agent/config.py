@@ -55,13 +55,13 @@ class Config:
             "max_tokens": 4000,
         },
         "openai": {
-            "model_name": "gpt-4-turbo-preview",
+            "model_name": "gpt-4-turbo-2024-04-09",  # Latest GA model
             "temperature": 0.0,
             "top_p": 0.1,
             "max_tokens": 4000,
         },
         "grok": {
-            "model_name": "grok-1",
+            "model_name": "gpt-4-turbo-2024-04-09",  # Fallback to latest OpenAI model
             "temperature": 0.0,
             "top_p": 0.1,
             "max_tokens": 4000,

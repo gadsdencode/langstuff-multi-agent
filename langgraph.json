@@ -92,8 +92,13 @@
         "anthropic_api_key": "${ANTHROPIC_API_KEY}",
         "openai_api_key": "${OPENAI_API_KEY}",
         "tavily_api_key": "${TAVILY_API_KEY}",
-        "default_model": "gpt-4-turbo-preview",
-        "default_temperature": 0.0,
+        "model_settings": {
+            "default_provider": "openai",
+            "default_model": "gpt-4-turbo-2024-04-09",
+            "default_temperature": 0.0,
+            "default_top_p": 0.1,
+            "default_max_tokens": 4000
+        },
         "checkpointer": "MemorySaver",
         "logging": {
             "level": "INFO",
