@@ -17,10 +17,12 @@ Supported providers:
 import os
 import logging
 from langgraph.checkpoint.memory import MemorySaver
+from typing import Optional
 
 # Import provider libraries.
 from langchain_anthropic import ChatAnthropic
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
+from langchain_core.language_models.chat_models import BaseChatModel
 
 
 class Config:
@@ -44,71 +46,53 @@ class Config:
     # Persistent checkpointer instance for use across workflows.
     PERSISTENT_CHECKPOINTER = MemorySaver()
 
+    # Model settings
+    MODEL_NAME = "gpt-4-turbo-preview"
+    TEMPERATURE = 0.0
+    TOP_P = 0.1
+    MAX_TOKENS = 2000
+
     @classmethod
     def init_logging(cls):
         logging.basicConfig(level=cls.LOG_LEVEL, format=cls.LOG_FORMAT)
         logging.info("Logging initialized at level: %s", cls.LOG_LEVEL)
+
+    @classmethod
+    def get_api_key(cls) -> str:
+        """Get the OpenAI API key from environment variables."""
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable not set")
+        return api_key
 
 
 # Initialize logging immediately.
 Config.init_logging()
 
 
-def get_llm(model_name: str = None, temperature: float = None):
+def get_llm(
+    model_name: Optional[str] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    max_tokens: Optional[int] = None
+) -> BaseChatModel:
     """
-    Returns an LLM instance based on the AI_PROVIDER configuration.
-
-    This function supports three providers:
-      - "anthropic": Uses ChatAnthropic.
-      - "openai": Uses ChatOpenAI with GPT-4o-mini.
-      - "grok" (or "xai"): Uses ChatOpenAI as an interface to Grok with a custom base URL.
-
-    :param model_name: Optional model name override.
-    :param temperature: Optional temperature override.
-    :return: An LLM instance.
-    :raises ValueError: if a required API key is missing or provider is unsupported.
+    Factory function to create a language model instance.
+    
+    Args:
+        model_name: Name of the model to use
+        temperature: Temperature parameter for generation
+        top_p: Top-p parameter for generation
+        max_tokens: Maximum tokens to generate
+        
+    Returns:
+        An instance of BaseChatModel
     """
-    # Use provided parameters or fallback to defaults.
-    model_name = model_name or Config.DEFAULT_MODEL
-    temperature = temperature if temperature is not None else Config.DEFAULT_TEMPERATURE
-    provider = Config.AI_PROVIDER
-
-    if provider == "openai":
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment")
-        model = ChatOpenAI(
-            temperature=0.7,
-            max_tokens=2000,
-            top_p=0.95,
-            model_name="gpt-4o-mini",
-            api_key=api_key
-        )
-    elif provider == "anthropic":
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY not found in environment")
-        model = ChatAnthropic(
-            temperature=0,
-            max_tokens=500,
-            top_p=0.95,
-            model_name=model_name,
-            anthropic_api_key=api_key
-        )
-    elif provider in ("grok", "xai"):
-        api_key = os.getenv("XAI_API_KEY")
-        if not api_key:
-            raise ValueError("XAI_API_KEY not found in environment")
-        # Using ChatOpenAI as an interface to Grok with a custom base URL.
-        model = ChatOpenAI(
-            temperature=0.7,
-            max_tokens=2000,
-            top_p=0.95,
-            model_name="grok-2-1212",
-            api_key=api_key,
-            base_url="https://api.x.ai/v1"
-        )
-    else:
-        raise ValueError(f"Unsupported AI provider: {provider}")
-
+    model = ChatOpenAI(
+        model_name=model_name or Config.MODEL_NAME,
+        temperature=temperature or Config.TEMPERATURE,
+        top_p=top_p or Config.TOP_P,
+        max_tokens=max_tokens or Config.MAX_TOKENS,
+        api_key=Config.get_api_key()
+    )
     return model
