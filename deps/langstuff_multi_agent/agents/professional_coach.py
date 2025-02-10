@@ -1,8 +1,10 @@
 # agents/professional_coach.py
-# This file defines the Professional Coach Agent workflow.
-# The Professional Coach Agent provides career advice and job search strategies.
-# It can use tools such as search_web and job_search_tool.
-# It uses ChatAnthropic (Claude‑2) and a ToolNode to guide users in their career development.
+"""
+Professional Coach Agent module for career guidance.
+
+This module provides a workflow for offering career advice and
+job search strategies using various tools.
+"""
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode

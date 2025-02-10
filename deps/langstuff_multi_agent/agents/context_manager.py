@@ -1,8 +1,10 @@
 # agents/context_manager.py
-# This file defines the Context Manager Agent workflow.
-# The Context Manager Agent tracks conversation context, summarizes important details,
-# and can use tools such as search_web, read_file, and write_file.
-# It uses ChatAnthropic (Claude‑2) and a ToolNode to perform these tasks.
+"""
+Context Manager Agent module for tracking conversation context.
+
+This module provides a workflow for managing conversation history
+and maintaining context across interactions.
+"""
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode

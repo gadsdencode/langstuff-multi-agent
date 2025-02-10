@@ -1,8 +1,10 @@
 # agents/general_assistant.py
-# This file defines the General Assistant Agent workflow.
-# The General Assistant Agent handles a wide range of general queries and tasks.
-# It uses tools such as search_web and get_current_weather.
-# The agent is powered by ChatAnthropic (Claude‑2) and employs a ToolNode to fulfill requests.
+"""
+General Assistant Agent module for handling diverse queries.
+
+This module provides a workflow for addressing general user requests
+using a variety of tools.
+"""
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode

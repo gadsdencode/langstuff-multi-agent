@@ -1,13 +1,19 @@
-# debugger.py
-# This file defines the Debugger Agent workflow for LangGraph.
-# The Debugger Agent is responsible for analyzing code, identifying errors,
-# and optionally using tools such as search_web, python_repl, read_file, and write_file.
-# It uses ChatAnthropic (Claude‑2) as the underlying LLM and leverages a ToolNode
-# to invoke tools when necessary.
+# agents/debugger.py
+"""
+Debugger Agent module for analyzing code and identifying errors.
+
+This module provides a workflow for debugging code using various tools
+and LLM-based analysis.
+"""
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, python_repl, read_file, write_file
+from langstuff_multi_agent.utils.tools import (
+    search_web,
+    python_repl,
+    read_file,
+    write_file
+)
 from langchain_anthropic import ChatAnthropic
 
 debugger_workflow = StateGraph(MessagesState)

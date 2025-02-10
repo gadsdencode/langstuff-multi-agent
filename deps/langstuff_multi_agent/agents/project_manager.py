@@ -1,12 +1,18 @@
 # agents/project_manager.py
-# This file defines the Project Manager Agent workflow.
-# The Project Manager Agent oversees project timelines, tasks, and scheduling.
-# It has access to tools like search_web, calendar_tool, and task_tracker_tool.
-# It uses ChatAnthropic (Claude‑2) and a ToolNode to manage project-related activities.
+"""
+Project Manager Agent module for task and timeline management.
+
+This module provides a workflow for overseeing project schedules
+and coordinating tasks using various tools.
+"""
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, calendar_tool, task_tracker_tool
+from langstuff_multi_agent.utils.tools import (
+    search_web,
+    calendar_tool,
+    task_tracker_tool
+)
 from langchain_anthropic import ChatAnthropic
 
 project_manager_workflow = StateGraph(MessagesState)

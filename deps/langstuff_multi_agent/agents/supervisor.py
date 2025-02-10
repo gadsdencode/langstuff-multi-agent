@@ -1,15 +1,18 @@
 # agents/supervisor.py
 """
-Supervisor Agent module for integrating and routing individual LangGraph agent workflows.
+Supervisor Agent module for integrating and routing individual LangGraph 
+agent workflows.
 
-This module uses an LLM—instantiated via the get_llm() factory function from
-langstuff_multi_agent/config.py—to classify incoming user requests and dynamically
-route the request to the appropriate specialized agent workflow. The available agents include:
-  DEBUGGER, CONTEXT_MANAGER, PROJECT_MANAGER, PROFESSIONAL_COACH, LIFE_COACH, CODER,
-  ANALYST, RESEARCHER, and GENERAL_ASSISTANT.
+This module uses an LLM—instantiated via the get_llm() factory function 
+from langstuff_multi_agent/config.py—to classify incoming user requests 
+and dynamically route the request to the appropriate specialized agent 
+workflow. The available agents include:
+  DEBUGGER, CONTEXT_MANAGER, PROJECT_MANAGER, PROFESSIONAL_COACH, 
+  LIFE_COACH, CODER, ANALYST, RESEARCHER, and GENERAL_ASSISTANT.
 
-Each agent workflow is compiled with persistent checkpointing enabled by explicitly
-passing the shared checkpointer (Config.PERSISTENT_CHECKPOINTER) during compilation.
+Each agent workflow is compiled with persistent checkpointing enabled 
+by explicitly passing the shared checkpointer 
+(Config.PERSISTENT_CHECKPOINTER) during compilation.
 """
 
 from langgraph.graph import START, END
@@ -17,15 +20,33 @@ from langchain_core.messages import HumanMessage
 from langstuff_multi_agent.config import Config, get_llm
 
 # Import individual workflows.
-from debugger import debugger_workflow
-from agents.context_manager import context_manager_workflow
-from agents.project_manager import project_manager_workflow
-from agents.professional_coach import professional_coach_workflow
-from agents.life_coach import life_coach_workflow
-from agents.coder import coder_workflow
-from agents.analyst import analyst_workflow
-from agents.researcher import researcher_workflow
-from agents.general_assistant import general_assistant_workflow
+from langstuff_multi_agent.agents.debugger import (
+    debugger_workflow
+)
+from langstuff_multi_agent.agents.context_manager import (
+    context_manager_workflow
+)
+from langstuff_multi_agent.agents.project_manager import (
+    project_manager_workflow
+)
+from langstuff_multi_agent.agents.professional_coach import (
+    professional_coach_workflow
+)
+from langstuff_multi_agent.agents.life_coach import (
+    life_coach_workflow
+)
+from langstuff_multi_agent.agents.coder import (
+    coder_workflow
+)
+from langstuff_multi_agent.agents.analyst import (
+    analyst_workflow
+)
+from langstuff_multi_agent.agents.researcher import (
+    researcher_workflow
+)
+from langstuff_multi_agent.agents.general_assistant import (
+    general_assistant_workflow
+)
 
 # Compile each workflow with the persistent checkpointer.
 compiled_workflows = {

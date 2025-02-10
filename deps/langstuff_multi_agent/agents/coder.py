@@ -1,8 +1,10 @@
 # agents/coder.py
-# This file defines the Coder Agent workflow.
-# The Coder Agent assists with writing, debugging, and improving code.
-# It utilizes tools like search_web, python_repl, read_file, and write_file.
-# The agent is powered by ChatAnthropic (Claude‑2) and uses a ToolNode for code-related tasks.
+"""
+Coder Agent module for writing and improving code.
+
+This module provides a workflow for code generation, debugging,
+and optimization using various development tools.
+"""
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode

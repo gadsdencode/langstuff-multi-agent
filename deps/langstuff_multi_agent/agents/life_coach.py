@@ -1,8 +1,10 @@
 # agents/life_coach.py
-# This file defines the Life Coach Agent workflow.
-# The Life Coach Agent offers personal advice and lifestyle tips.
-# It can use tools such as search_web, get_current_weather, and calendar_tool.
-# It uses ChatAnthropic (Claude‑2) and a ToolNode for interactive coaching.
+"""
+Life Coach Agent module for personal advice and guidance.
+
+This module provides a workflow for offering lifestyle tips and
+personal development advice using various tools.
+"""
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode

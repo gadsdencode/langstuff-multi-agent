@@ -7,8 +7,8 @@ This script initializes the system by loading configuration from config.py
 SupervisorAgent to process incoming user requests.
 """
 
-from config import Config  # This import initializes configuration and logging.
-from agents.supervisor import SupervisorAgent, compiled_workflows, supervisor_llm
+from langstuff_multi_agent.config import Config
+from langstuff_multi_agent.agents.supervisor import SupervisorAgent, compiled_workflows, supervisor_llm
 
 
 def main():

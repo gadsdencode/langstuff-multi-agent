@@ -1,12 +1,18 @@
 # agents/analyst.py
-# This file defines the Analyst Agent workflow.
-# The Analyst Agent specializes in data analysis, performing calculations, and interpreting results.
-# It leverages tools such as search_web, python_repl, and calc_tool.
-# Powered by ChatAnthropic (Claude‑2) with a ToolNode for analytical tasks.
+"""
+Analyst Agent module for data analysis and interpretation.
+
+This module provides a workflow for analyzing data and performing
+calculations using various tools.
+"""
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, python_repl, calc_tool
+from langstuff_multi_agent.utils.tools import (
+    search_web,
+    python_repl,
+    calc_tool
+)
 from langchain_anthropic import ChatAnthropic
 
 
