@@ -36,7 +36,7 @@ class Config:
     DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", 0))
 
     # AI Provider: options are "anthropic", "openai", or "grok" (or "xai"). Default is "anthropic".
-    AI_PROVIDER = os.environ.get("AI_PROVIDER", "anthropic").lower()
+    AI_PROVIDER = os.environ.get("AI_PROVIDER", "xai").lower()
 
     # Logging configuration.
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
