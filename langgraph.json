@@ -2,54 +2,54 @@
     "version": "1.0",
     "project": "LangGraph Multi-Agent AI",
     "description": "Configuration for deploying the LangGraph multi-agent AI project via LangGraph Studio.",
-    "entry_point": "main.py",
+    "entry_point": "langstuff_multi_agent.main:main",
     "graphs": {
-      "supervisor": "agents.supervisor:graph"
+      "supervisor": "langstuff_multi_agent.agents.supervisor:graph"
     },
     "agents": [
       {
         "name": "DEBUGGER",
-        "file": "debugger.py",
+        "file": "langstuff_multi_agent/agents/debugger.py",
         "description": "Agent responsible for debugging code."
       },
       {
         "name": "CONTEXT_MANAGER",
-        "file": "agents/context_manager.py",
+        "file": "langstuff_multi_agent/agents/context_manager.py",
         "description": "Agent responsible for managing conversation context."
       },
       {
         "name": "PROJECT_MANAGER",
-        "file": "agents/project_manager.py",
+        "file": "langstuff_multi_agent/agents/project_manager.py",
         "description": "Agent responsible for managing project timelines and tasks."
       },
       {
         "name": "PROFESSIONAL_COACH",
-        "file": "agents/professional_coach.py",
+        "file": "langstuff_multi_agent/agents/professional_coach.py",
         "description": "Agent providing professional and career guidance."
       },
       {
         "name": "LIFE_COACH",
-        "file": "agents/life_coach.py",
+        "file": "langstuff_multi_agent/agents/life_coach.py",
         "description": "Agent providing lifestyle and personal advice."
       },
       {
         "name": "CODER",
-        "file": "agents/coder.py",
+        "file": "langstuff_multi_agent/agents/coder.py",
         "description": "Agent that assists with coding tasks."
       },
       {
         "name": "ANALYST",
-        "file": "agents/analyst.py",
+        "file": "langstuff_multi_agent/agents/analyst.py",
         "description": "Agent specializing in data analysis."
       },
       {
         "name": "RESEARCHER",
-        "file": "agents/researcher.py",
+        "file": "langstuff_multi_agent/agents/researcher.py",
         "description": "Agent that gathers and summarizes research and news."
       },
       {
         "name": "GENERAL_ASSISTANT",
-        "file": "agents/general_assistant.py",
+        "file": "langstuff_multi_agent/agents/general_assistant.py",
         "description": "Agent for general queries and assistance."
       }
     ],
@@ -57,7 +57,8 @@
       "langgraph",
       "langchain-anthropic",
       "langchain-core",
-      "langchain-openai"
+      "langchain-openai",
+      "python-dotenv"
     ],
     "configuration": {
       "xai_api_key": "${XAI_API_KEY}",
@@ -65,7 +66,6 @@
       "default_temperature": 0,
       "checkpointer": "MemorySaver",
       "logging": {
-
         "level": "INFO",
         "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
       }
