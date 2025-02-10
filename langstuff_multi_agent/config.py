@@ -15,10 +15,11 @@ Supported providers:
 import os
 import logging
 from langgraph.checkpoint.memory import MemorySaver
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from typing_extensions import TypedDict
 from langchain_core.messages import SystemMessage
 from langchain_core.runnables.config import RunnableConfig
+from pydantic import BaseModel, ValidationError
 
 # Import provider libraries.
 from langchain_anthropic import ChatAnthropic
@@ -100,33 +101,52 @@ class Config:
 Config.init_logging()
 
 
-def get_model_instance(provider: str, **kwargs) -> BaseChatModel:
-    """Create a model instance for the specified provider with optional overrides."""
-    config = Config.MODEL_CONFIGS[provider].copy()
-    config.update(kwargs)
+class ModelConfig(BaseModel):
+    """Validation schema for LLM configurations"""
+    provider: Literal['openai', 'anthropic', 'grok', 'azure_openai']
+    model_name: str
+    api_key: str
+    temperature: float = 0.7
+    max_tokens: int = 2048
+    streaming: bool = True
+
+
+def get_model_instance(provider: str, **kwargs):
+    # Validate provider first
+    if not provider or provider not in Config.MODEL_CONFIGS:
+        available = list(Config.MODEL_CONFIGS.keys())
+        raise ValueError(f"Invalid LLM provider: {provider}. Available: {available}")
+    
+    try:
+        # Validate configuration against schema
+        config = ModelConfig(
+            provider=provider,
+            **{**Config.MODEL_CONFIGS[provider], **kwargs}
+        )
+    except ValidationError as e:
+        error_messages = [f"{err['loc'][0]}: {err['msg']}" for err in e.errors()]
+        raise ValueError(f"Invalid model configuration:\n" + "\n".join(error_messages))
     
     if provider == "anthropic":
         return ChatAnthropic(
             api_key=Config.get_api_key("anthropic"),
-            **config
+            **config.model_dump()
         )
     elif provider in ["openai", "grok"]:
         return ChatOpenAI(
             api_key=Config.get_api_key("openai"),
-            **config
+            **config.model_dump()
         )
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
 
-def get_llm(
-    config: Optional[Dict[str, Any]] = None,
-) -> BaseChatModel:
+def get_llm(configurable: dict = {}):
     """
     Factory function to create a language model instance based on configuration.
     
     Args:
-        config: Optional configuration dictionary that can include:
+        configurable: Optional configuration dictionary that can include:
                - model: Provider name ("anthropic", "openai", "grok")
                - system_message: Optional system message to prepend
                - temperature: Temperature parameter for generation
@@ -136,13 +156,8 @@ def get_llm(
     Returns:
         An instance of BaseChatModel configured according to the specified parameters
     """
-    config = config or {}
-    provider = config.get("model", Config.DEFAULT_PROVIDER)
-    
-    model_kwargs = {
-        k: v for k, v in config.items() 
-        if k in ["temperature", "top_p", "max_tokens", "model_name"]
-    }
+    provider = configurable.get('provider', 'openai')  # Set default provider
+    model_kwargs = configurable.get('model_kwargs', {})
     
     return get_model_instance(provider, **model_kwargs)
 
