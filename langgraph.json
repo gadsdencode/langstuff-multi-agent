@@ -3,6 +3,9 @@
     "project": "LangGraph Multi-Agent AI",
     "description": "Configuration for deploying the LangGraph multi-agent AI project via LangGraph Studio.",
     "entry_point": "main.py",
+    "graphs": {
+      "supervisor": "agents/supervisor.py"
+    },
     "agents": [
       {
         "name": "DEBUGGER",
@@ -58,12 +61,12 @@
       "langstuff_multi_agent"
     ],
     "configuration": {
-      "anthropic_api_key": "${ANTHROPIC_API_KEY}",
-
-      "default_model": "claude-2",
+      "xai_api_key": "${XAI_API_KEY}",
+      "default_model": "grok-2-1212",
       "default_temperature": 0,
       "checkpointer": "MemorySaver",
       "logging": {
+
         "level": "INFO",
         "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
       }
