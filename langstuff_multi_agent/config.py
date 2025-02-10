@@ -38,7 +38,8 @@ class Config:
 
 
     # AI Provider: options are "anthropic", "openai", or "grok" (or "xai"). Default is "anthropic".
-    AI_PROVIDER = os.environ.get("AI_PROVIDER", "xai").lower()
+    AI_PROVIDER = os.environ.get("AI_PROVIDER", "openai").lower()
+
 
     # Logging configuration.
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
