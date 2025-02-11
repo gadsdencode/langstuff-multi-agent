@@ -17,9 +17,9 @@ from langstuff_multi_agent.utils.tools import has_tool_calls
 def manage(state):
     """Project management agent that coordinates tasks and timelines."""
     messages = state.get("messages", [])
-    config = state.get("config", {})
+    config = state.get("configurable", {})
 
-    llm = get_llm(config.get("configurable", {}))
+    llm = get_llm(config)
     response = llm.invoke(messages)
 
     return {"messages": messages + [response]}

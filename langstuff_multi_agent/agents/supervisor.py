@@ -76,7 +76,10 @@ class RouterState(RouterInput):
 
 def route_query(state: RouterState):
     """Classifies and routes user queries using structured LLM output."""
-    llm = get_llm({"structured_output_method": "json_mode"})
+    # Get config from state and add structured output method
+    config = getattr(state, "configurable", {})
+    config["structured_output_method"] = "json_mode"
+    llm = get_llm(config)
     system = """You are an expert router for a multi-agent system. Analyze the user's query 
     and route to ONE specialized agent. Consider these specialties:
     - Debugger: Code errors, troubleshooting

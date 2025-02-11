@@ -9,7 +9,6 @@ information using various tools.
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import search_web, news_tool, has_tool_calls
-from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
 researcher_graph = StateGraph(MessagesState, ConfigSchema)
@@ -21,7 +20,11 @@ tool_node = ToolNode(tools)
 
 def research(state, config):
     """Conduct research with configuration support."""
-    llm = get_llm(config.get("configurable", {}))
+    # Get config from state and merge with passed config
+    state_config = state.get("configurable", {})
+    if config:
+        state_config.update(config.get("configurable", {}))
+    llm = get_llm(state_config)
     llm = llm.bind_tools(tools)
     return {
         "messages": [

@@ -32,12 +32,13 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 
 class ConfigSchema(TypedDict):
-    """Schema for LangGraph runtime configuration."""
+    """Enhanced configuration schema for assistant nodes"""
     model: Optional[str]
     system_message: Optional[str]
     temperature: Optional[float]
     top_p: Optional[float]
     max_tokens: Optional[int]
+    provider: Literal['openai', 'anthropic', 'grok']  # Required provider field
 
 
 class Config:
@@ -182,18 +183,18 @@ def create_model_config(
     **kwargs
 ) -> RunnableConfig:
     """
-    Create a RunnableConfig for LangGraph workflow configuration.
+    Updated config creator with validation
 
-    Args:
-        model: Optional model provider to use.
-        system_message: Optional system message to prepend.
-        **kwargs: Additional configuration parameters.
-
-    Returns:
-        RunnableConfig with the specified configuration.
+    :param model: Model identifier (e.g. "gpt-4o")
+    :param system_message: Role definition for the assistant
+    :param **kwargs: Additional config parameters
     """
-    config = {"model": model} if model else {}
-    if system_message:
-        config["system_message"] = system_message
-    config.update(kwargs)
-    return {"configurable": config}
+    validated = ConfigSchema(
+        model=model or Config.DEFAULT_MODEL,
+        system_message=system_message,
+        temperature=kwargs.get('temperature', Config.DEFAULT_TEMPERATURE),
+        provider=kwargs.get('provider', Config.DEFAULT_PROVIDER),
+        top_p=kwargs.get('top_p', 0.1),
+        max_tokens=kwargs.get('max_tokens', 4000)
+    )
+    return {"configurable": validated}
