@@ -12,6 +12,7 @@ from langstuff_multi_agent.utils.tools import search_web, read_file, write_file,
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
+# 1. Initialize workflow FIRST
 context_manager_workflow = StateGraph(MessagesState, ConfigSchema)
 
 # Define tools for context management
@@ -52,22 +53,23 @@ def manage_context(state, config):
     }
 
 
-context_manager_graph = context_manager_workflow.compile()
+# 2. Add nodes BEFORE compiling
+context_manager_workflow.add_node("manage_context", manage_context)
+context_manager_workflow.add_node("tools", tool_node)
 
-context_manager_graph.add_node("manage_context", manage_context)
-context_manager_graph.set_entry_point("manage_context")
-context_manager_graph.add_node("tools", tool_node)
+# 3. Set entry point explicitly
+context_manager_workflow.set_entry_point("manage_context")
 
-context_manager_graph.add_edge(START, "manage_context")
-
-context_manager_graph.add_conditional_edges(
+# 4. Add edges in sequence
+context_manager_workflow.add_edge(START, "manage_context")
+context_manager_workflow.add_conditional_edges(
     "manage_context",
-    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
-    {"tools": "tools", "END": END}
+    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else END,
+    {"tools": "tools", END: END}
 )
+context_manager_workflow.add_edge("tools", "manage_context")
 
-context_manager_graph.add_edge("tools", "manage_context")
-
-context_manager_graph = context_manager_graph.compile()
+# 5. Compile ONCE at the end
+context_manager_graph = context_manager_workflow.compile()
 
 __all__ = ["context_manager_graph"]
