@@ -49,28 +49,25 @@ def code(state, config):
     }
 
 
-def process_tool_results(state, config):
-    """Process tool outputs and generate final response."""
-    llm = get_llm(config.get("configurable", {}))
-    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+def process_tool_results(state):
+    """Processes tool outputs and formats FINAL user response"""
+    last_message = state.messages[-1]
     
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [{
-                    "role": "system",
-                    "content": (
-                        "Process the tool outputs and provide a final response.\n\n"
-                        f"Tool outputs: {tool_outputs}\n\n"
-                        "Instructions:\n"
-                        "1. Review the tool outputs in context of the coding request.\n"
-                        "2. Explain code changes and implementation details.\n"
-                        "3. Include any necessary testing or verification steps."
-                    )
-                }]
-            )
-        ]
-    }
+    if tool_calls := getattr(last_message, 'tool_calls', None):
+        tool_outputs = [tc["output"] for tc in tool_calls if "output" in tc]
+        
+        # Generate FINAL response with tool data
+        return {"messages": [
+            get_llm().invoke([
+                {"role": "user", "content": state.messages[0].content},
+                {"role": "assistant", "content": f"Tool outputs: {tool_outputs}"},
+                {"role": "system", "content": (
+                    "Formulate final answer using these results. "
+                    "Include code explanations and next steps if relevant."
+                )}
+            ])
+        ]}
+    return state
 
 
 coder_graph.add_node("code", code)
@@ -82,13 +79,10 @@ coder_graph.add_edge(START, "code")
 coder_graph.add_conditional_edges(
     "code",
     lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
-    {
-        "tools": "tools",
-        "END": END
-    }
+    {"tools": "tools", "END": END}
 )
 
-coder_graph.add_edge("tools", "code")
+coder_graph.add_edge("tools", "process_results")
 coder_graph.add_edge("process_results", END)
 
 coder_graph = coder_graph.compile()

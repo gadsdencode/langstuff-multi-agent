@@ -8,76 +8,61 @@ and LLM-based analysis.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, python_repl, read_file, write_file, has_tool_calls
-from langchain_anthropic import ChatAnthropic
-from langstuff_multi_agent.config import ConfigSchema, get_llm
+from langstuff_multi_agent.utils.tools import (
+    search_web,
+    python_repl,
+    read_file,
+    write_file,
+    has_tool_calls
+)
+from langstuff_multi_agent.config import get_llm
 
-debugger_workflow = StateGraph(MessagesState, ConfigSchema)
+debugger_workflow = StateGraph(MessagesState)
 
 # Define the tools available to the Debugger Agent
 tools = [search_web, python_repl, read_file, write_file]
 tool_node = ToolNode(tools)
 
 
-def analyze_code(state, config):
-    """Analyze code and identify errors with configuration support."""
-    llm = get_llm(config.get("configurable", {}))
-    llm = llm.bind_tools(tools)
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a Debugger Agent. Your task is to identify and analyze code errors.\n\n"
-                            "You have access to the following tools:\n"
-                            "- search_web: Search the web for general information and recent content.\n"
-                            "- python_repl: Execute Python code.\n"
-                            "- read_file: Read the contents of a file.\n"
-                            "- write_file: Write content to a file.\n\n"
-                            "Instructions:\n"
-                            "1. Analyze the user's code and identify potential errors.\n"
-                            "2. Use the search_web tool to find relevant information about the error or related debugging techniques.\n"
-                            "3. Use the python_repl tool to execute code snippets and test potential fixes.\n"
-                            "4. If necessary, use read_file and write_file to modify the code.\n"
-                            "5. Provide clear and concise explanations of the error and the debugging process."
-                        ),
-                    }
-                ]
-            )
-        ]
-    }
-
-
-def process_tool_results(state, config):
-    """Process tool outputs and generate final response."""
-    llm = get_llm(config.get("configurable", {}))
-    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+def analyze_code(state):
+    """Analyze code and identify errors."""
+    messages = state.get("messages", [])
+    config = state.get("config", {})
     
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [{
-                    "role": "system",
-                    "content": (
-                        "Process the tool outputs and provide a final response.\n\n"
-                        f"Tool outputs: {tool_outputs}\n\n"
-                        "Instructions:\n"
-                        "1. Review the tool outputs in context of the debugging query.\n"
-                        "2. Explain the identified issues and solutions clearly.\n"
-                        "3. Include code fixes and verification steps."
-                    )
-                }]
-            )
+    llm = get_llm(config.get("configurable", {}))
+    response = llm.invoke(messages)
+    
+    return {"messages": messages + [response]}
+
+
+def process_tool_results(state):
+    """Processes tool outputs and formats FINAL user response"""
+    last_message = state.messages[-1]
+    
+    if tool_calls := getattr(last_message, 'tool_calls', None):
+        outputs = [tc["output"] for tc in tool_calls if "output" in tc]
+        
+        # Generate FINAL response with tool data
+        prompt = [
+            {"role": "user", "content": state.messages[0].content},
+            {"role": "assistant", "content": f"Tool outputs: {outputs}"},
+            {
+                "role": "system", 
+                "content": (
+                    "Formulate final answer using these results. "
+                    "Focus on code analysis and debugging insights."
+                )
+            }
         ]
-    }
+        return {"messages": [get_llm().invoke(prompt)]}
+    return state
 
 
+# Initialize and configure the debugger workflow
 debugger_workflow.add_node("analyze_code", analyze_code)
 debugger_workflow.add_node("tools", tool_node)
 debugger_workflow.add_node("process_results", process_tool_results)
-
+debugger_workflow.set_entry_point("analyze_code")
 debugger_workflow.add_edge(START, "analyze_code")
 
 debugger_workflow.add_conditional_edges(

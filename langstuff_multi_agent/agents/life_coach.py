@@ -8,70 +8,56 @@ personal development advice using various tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, get_current_weather, calendar_tool, has_tool_calls
-from langchain_anthropic import ChatAnthropic
-from langstuff_multi_agent.config import ConfigSchema, get_llm
+from langstuff_multi_agent.utils.tools import (
+    search_web,
+    get_current_weather,
+    calendar_tool,
+    has_tool_calls
+)
+from langstuff_multi_agent.config import get_llm
 
-life_coach_graph = StateGraph(MessagesState, ConfigSchema)
+life_coach_graph = StateGraph(MessagesState)
 
 # Define tools for life coaching
 tools = [search_web, get_current_weather, calendar_tool]
 tool_node = ToolNode(tools)
 
 
-def life_coach(state, config):
-    """Provide life coaching with configuration support."""
-    llm = get_llm(config.get("configurable", {}))
-    llm = llm.bind_tools(tools)
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a Life Coach Agent. Your task is to provide personal advice and lifestyle tips.\n\n"
-                            "You have access to the following tools:\n"
-                            "- search_web: Look up general lifestyle tips and motivational content.\n"
-                            "- get_current_weather: Provide weather updates to help plan outdoor activities.\n"
-                            "- calendar_tool: Assist in scheduling and planning daily routines.\n\n"
-                            "Instructions:\n"
-                            "1. Listen to the user's personal queries and lifestyle challenges.\n"
-                            "2. Offer practical advice and motivational support.\n"
-                            "3. Use the available tools to supply additional context when necessary.\n"
-                            "4. Maintain an empathetic and encouraging tone throughout the conversation."
-                        ),
-                    }
-                ]
-            )
-        ]
-    }
-
-
-def process_tool_results(state, config):
-    """Process tool outputs and generate final response."""
-    llm = get_llm(config.get("configurable", {}))
-    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+def life_coach(state):
+    """Provide life coaching and personal advice."""
+    messages = state.get("messages", [])
+    config = state.get("config", {})
     
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [{
-                    "role": "system",
-                    "content": (
-                        "Process the tool outputs and provide a final response.\n\n"
-                        f"Tool outputs: {tool_outputs}\n\n"
-                        "Instructions:\n"
-                        "1. Review the tool outputs in context of the life advice query.\n"
-                        "2. Provide personalized guidance and actionable steps.\n"
-                        "3. Include relevant lifestyle tips and resources."
-                    )
-                }]
-            )
+    llm = get_llm(config.get("configurable", {}))
+    response = llm.invoke(messages)
+    
+    return {"messages": messages + [response]}
+
+
+def process_tool_results(state):
+    """Processes tool outputs and formats FINAL user response"""
+    last_message = state.messages[-1]
+    
+    if tool_calls := getattr(last_message, 'tool_calls', None):
+        outputs = [tc["output"] for tc in tool_calls if "output" in tc]
+        
+        # Generate FINAL response with tool data
+        prompt = [
+            {"role": "user", "content": state.messages[0].content},
+            {"role": "assistant", "content": f"Tool outputs: {outputs}"},
+            {
+                "role": "system", 
+                "content": (
+                    "Formulate final answer using these results. "
+                    "Focus on personal advice and actionable steps."
+                )
+            }
         ]
-    }
+        return {"messages": [get_llm().invoke(prompt)]}
+    return state
 
 
+# Initialize and configure the life coach graph
 life_coach_graph.add_node("life_coach", life_coach)
 life_coach_graph.add_node("tools", tool_node)
 life_coach_graph.add_node("process_results", process_tool_results)
@@ -84,7 +70,7 @@ life_coach_graph.add_conditional_edges(
     {"tools": "tools", "END": END}
 )
 
-life_coach_graph.add_edge("tools", "life_coach")
+life_coach_graph.add_edge("tools", "process_results")
 life_coach_graph.add_edge("process_results", END)
 
 life_coach_graph = life_coach_graph.compile()

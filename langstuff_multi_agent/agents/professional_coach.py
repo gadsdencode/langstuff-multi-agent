@@ -8,69 +8,55 @@ job search strategies using various tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, job_search_tool, has_tool_calls
-from langchain_anthropic import ChatAnthropic
-from langstuff_multi_agent.config import ConfigSchema, get_llm
+from langstuff_multi_agent.utils.tools import (
+    search_web,
+    job_search_tool,
+    has_tool_calls
+)
+from langstuff_multi_agent.config import get_llm
 
-professional_coach_graph = StateGraph(MessagesState, ConfigSchema)
+professional_coach_graph = StateGraph(MessagesState)
 
 # Define the tools for professional coaching
 tools = [search_web, job_search_tool]
 tool_node = ToolNode(tools)
 
 
-def coach(state, config):
-    """Provide professional coaching with configuration support."""
-    llm = get_llm(config.get("configurable", {}))
-    llm = llm.bind_tools(tools)
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a Professional Coach Agent. Your task is to provide career advice and job search strategies.\n\n"
-                            "You have access to the following tools:\n"
-                            "- search_web: Search for career advice and job market trends.\n"
-                            "- job_search_tool: Retrieve job listings and career opportunities.\n\n"
-                            "Instructions:\n"
-                            "1. Analyze the user's career-related queries.\n"
-                            "2. Offer actionable advice and strategies for job searching.\n"
-                            "3. Use the available tools to provide up-to-date information and resources.\n"
-                            "4. Communicate in a supportive and motivational tone."
-                        ),
-                    }
-                ]
-            )
-        ]
-    }
-
-
-def process_tool_results(state, config):
-    """Process tool outputs and generate final response."""
-    llm = get_llm(config.get("configurable", {}))
-    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+def coach(state):
+    """Provide professional coaching and career advice."""
+    messages = state.get("messages", [])
+    config = state.get("config", {})
     
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [{
-                    "role": "system",
-                    "content": (
-                        "Process the tool outputs and provide a final response.\n\n"
-                        f"Tool outputs: {tool_outputs}\n\n"
-                        "Instructions:\n"
-                        "1. Review the tool outputs in context of the career query.\n"
-                        "2. Provide actionable career advice and strategies.\n"
-                        "3. Include relevant job opportunities and resources."
-                    )
-                }]
-            )
+    llm = get_llm(config.get("configurable", {}))
+    response = llm.invoke(messages)
+    
+    return {"messages": messages + [response]}
+
+
+def process_tool_results(state):
+    """Processes tool outputs and formats FINAL user response"""
+    last_message = state.messages[-1]
+    
+    if tool_calls := getattr(last_message, 'tool_calls', None):
+        outputs = [tc["output"] for tc in tool_calls if "output" in tc]
+        
+        # Generate FINAL response with tool data
+        prompt = [
+            {"role": "user", "content": state.messages[0].content},
+            {"role": "assistant", "content": f"Tool outputs: {outputs}"},
+            {
+                "role": "system", 
+                "content": (
+                    "Formulate final answer using these results. "
+                    "Focus on career advice and job opportunities."
+                )
+            }
         ]
-    }
+        return {"messages": [get_llm().invoke(prompt)]}
+    return state
 
 
+# Initialize and configure the professional coach graph
 professional_coach_graph.add_node("coach", coach)
 professional_coach_graph.add_node("tools", tool_node)
 professional_coach_graph.add_node("process_results", process_tool_results)

@@ -47,19 +47,19 @@ def assist(state, config):
 
 
 def process_tool_results(state):
-    """Processes tool outputs and formats final response"""
+    """Processes tool outputs and formats FINAL user response"""
     last_message = state.messages[-1]
 
     if tool_calls := getattr(last_message, 'tool_calls', None):
-        # Extract tool outputs
         tool_outputs = [tc["output"] for tc in tool_calls if "output" in tc]
 
-        # Generate final response with context
+        # Generate FINAL response with tool data
         return {"messages": [
-            get_llm().invoke(state.messages + [{
-                "role": "user",
-                "content": f"Tool outputs: {tool_outputs}\nFormulate final answer:"
-            }])
+            get_llm().invoke([
+                {"role": "user", "content": state.messages[0].content},
+                {"role": "assistant", "content": f"Tool outputs: {tool_outputs}"},
+                {"role": "system", "content": "Formulate final answer using these results"}
+            ])
         ]}
     return state
 

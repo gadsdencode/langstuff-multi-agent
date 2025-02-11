@@ -46,28 +46,25 @@ def research(state, config):
     }
 
 
-def process_tool_results(state, config):
-    """Process tool outputs and generate final response."""
-    llm = get_llm(config.get("configurable", {}))
-    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+def process_tool_results(state):
+    """Processes tool outputs and formats FINAL user response"""
+    last_message = state.messages[-1]
     
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [{
-                    "role": "system",
-                    "content": (
-                        "Process the tool outputs and provide a final response.\n\n"
-                        f"Tool outputs: {tool_outputs}\n\n"
-                        "Instructions:\n"
-                        "1. Analyze the tool outputs in context of the user's query.\n"
-                        "2. Synthesize the information into a clear, comprehensive response.\n"
-                        "3. Ensure all relevant information from tools is included."
-                    )
-                }]
-            )
-        ]
-    }
+    if tool_calls := getattr(last_message, 'tool_calls', None):
+        tool_outputs = [tc["output"] for tc in tool_calls if "output" in tc]
+        
+        # Generate FINAL response with tool data
+        return {"messages": [
+            get_llm().invoke([
+                {"role": "user", "content": state.messages[0].content},
+                {"role": "assistant", "content": f"Tool outputs: {tool_outputs}"},
+                {"role": "system", "content": (
+                    "Formulate final answer using these results. "
+                    "Synthesize the research findings into a clear summary."
+                )}
+            ])
+        ]}
+    return state
 
 
 researcher_graph.add_node("research", research)
@@ -82,7 +79,7 @@ researcher_graph.add_conditional_edges(
     {"tools": "tools", "END": END}
 )
 
-researcher_graph.add_edge("tools", "research")
+researcher_graph.add_edge("tools", "process_results")
 researcher_graph.add_edge("process_results", END)
 
 researcher_graph = researcher_graph.compile()

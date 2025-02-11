@@ -6,87 +6,68 @@ This module provides a workflow for overseeing project schedules
 and coordinating tasks using various tools.
 """
 
-from langgraph.graph import StateGraph, MessagesState, START, END
-from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, calendar_tool, task_tracker_tool, has_tool_calls
-from langchain_anthropic import ChatAnthropic
-from langstuff_multi_agent.config import ConfigSchema, get_llm
+from langgraph.graph import END, START, StateGraph
 
-project_manager_graph = StateGraph(MessagesState, ConfigSchema)
-
-# Define project management tools
-tools = [search_web, calendar_tool, task_tracker_tool]
-tool_node = ToolNode(tools)
+from langstuff_multi_agent.agents.tools import tool_node
+from langstuff_multi_agent.llm import get_llm
+from langstuff_multi_agent.utils import has_tool_calls
 
 
-def manage_project(state, config):
-    """Manage project with configuration support."""
+def manage(state):
+    """Project management agent that coordinates tasks and timelines."""
+    messages = state.get("messages", [])
+    config = state.get("config", {})
+
     llm = get_llm(config.get("configurable", {}))
-    llm = llm.bind_tools(tools)
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a Project Manager Agent. Your task is to oversee project timelines, tasks, and scheduling.\n\n"
-                            "You have access to the following tools:\n"
-                            "- search_web: Search the web for project management best practices.\n"
-                            "- calendar_tool: Access and update project calendars.\n"
-                            "- task_tracker_tool: Manage and update project task lists.\n\n"
-                            "Instructions:\n"
-                            "1. Review project details and timelines.\n"
-                            "2. Update project schedules and task lists as needed.\n"
-                            "3. Use search_web for additional project management information.\n"
-                            "4. Provide clear instructions and updates regarding project progress."
-                        ),
-                    }
-                ]
-            )
+    response = llm.invoke(messages)
+
+    return {"messages": messages + [response]}
+
+
+def process_tool_results(state):
+    """Processes tool outputs and formats FINAL user response"""
+    last_message = state.messages[-1]
+
+    if tool_calls := getattr(last_message, 'tool_calls', None):
+        outputs = [tc["output"] for tc in tool_calls if "output" in tc]
+
+        # Generate FINAL response with tool data
+        prompt = [
+            {"role": "user", "content": state.messages[0].content},
+            {"role": "assistant", "content": f"Tool outputs: {outputs}"},
+            {
+                "role": "system",
+                "content": (
+                    "Formulate final answer using these results. "
+                    "Focus on project management insights and next steps."
+                )
+            }
         ]
-    }
+        return {"messages": [get_llm().invoke(prompt)]}
+    return state
 
 
-def process_tool_results(state, config):
-    """Process tool outputs and generate final response."""
-    llm = get_llm(config.get("configurable", {}))
-    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
-    
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [{
-                    "role": "system",
-                    "content": (
-                        "Process the tool outputs and provide a final response.\n\n"
-                        f"Tool outputs: {tool_outputs}\n\n"
-                        "Instructions:\n"
-                        "1. Review the tool outputs in context of project management.\n"
-                        "2. Update project timelines and task assignments.\n"
-                        "3. Provide clear next steps and deadlines."
-                    )
-                }]
-            )
-        ]
-    }
+# Initialize and configure the project manager graph
+project_manager_graph = StateGraph(StateGraph.to_state_dict)
 
 
-project_manager_graph.add_node("manage_project", manage_project)
+# Add nodes and configure workflow
+project_manager_graph.add_node("manage", manage)
 project_manager_graph.add_node("tools", tool_node)
 project_manager_graph.add_node("process_results", process_tool_results)
-project_manager_graph.set_entry_point("manage_project")
-project_manager_graph.add_edge(START, "manage_project")
+project_manager_graph.set_entry_point("manage")
+project_manager_graph.add_edge(START, "manage")
 
 project_manager_graph.add_conditional_edges(
-    "manage_project",
+    "manage",
     lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
     {"tools": "tools", "END": END}
 )
 
-project_manager_graph.add_edge("tools", "manage_project")
+project_manager_graph.add_edge("tools", "process_results")
 project_manager_graph.add_edge("process_results", END)
 
 project_manager_graph = project_manager_graph.compile()
+
 
 __all__ = ["project_manager_graph"]
