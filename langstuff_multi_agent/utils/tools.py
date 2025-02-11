@@ -23,9 +23,9 @@ import sqlite3
 import io
 import contextlib
 from langchain_core.tools import tool
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 from langstuff_multi_agent.config import get_llm
-from langgraph.prebuilt import ToolNode  # @Web: GitHub issue shows correct import path
+from langgraph.prebuilt import ToolNode
 
 
 def has_tool_calls(message: Dict[str, Any]) -> bool:
@@ -383,19 +383,25 @@ def news_tool(topic: str) -> str:
 
 
 # ---------------------------
-# TOOL NODE
+# TOOL NODE IMPLEMENTATION (UPDATED)
 # ---------------------------
 
-@tool
-def tool_node(tools: List[Any]) -> ToolNode:
+def get_tool_node(tools: List[Any]) -> ToolNode:
     """
-    Creates a LangGraph ToolNode from registered tools.
-    Required for LangGraph workflow integration.
+    Creates and returns a configured ToolNode instance for LangGraph workflows.
 
-    :param tools: List of @tool-decorated functions
-    :return: Configured ToolNode instance
+    Args:
+        tools: List of @tool-decorated functions to include in the node
+   
+    Returns:
+        Properly configured ToolNode instance
     """
     try:
         return ToolNode(tools)
-    except NameError:
-        raise ImportError("LangGraph version mismatch. Ensure langgraph>=0.1.2 is installed")
+    except NameError as e:
+        if "ToolNode" in str(e):
+            raise ImportError(
+                "LangGraph version >=0.1.2 required. Install with: "
+                "pip install langgraph>=0.1.2"
+            ) from e
+        raise
