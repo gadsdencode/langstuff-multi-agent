@@ -109,11 +109,9 @@ class ModelConfig(BaseModel):
     """Validation schema for LLM configurations"""
     provider: Literal['openai', 'anthropic', 'grok', 'azure_openai']
     model_name: str
-    api_key: str
     temperature: float = 0.7
     max_tokens: int = 2048
     streaming: bool = True
-    # Optional parameter for specifying the structured output method (e.g., "json_schema", "tool_calling")
     structured_output_method: Optional[str] = None
 
 
@@ -146,17 +144,12 @@ def get_model_instance(provider: str, **kwargs):
     if provider == "anthropic":
         return ChatAnthropic(
             api_key=Config.get_api_key("anthropic"),
-            **config_obj.model_dump(exclude={"structured_output_method"})
+            **config_obj.model_dump()
         )
-    elif provider in ["openai"]:
+    elif provider in ["openai", "grok"]:
         return ChatOpenAI(
-            api_key=Config.get_api_key("openai"),
-            **config_obj.model_dump(exclude={"structured_output_method"})
-        )
-    elif provider in ["grok"]:
-        return ChatOpenAI(
-            api_key=Config.get_api_key("grok"),
-            **config_obj.model_dump(exclude={"structured_output_method"})
+            api_key=Config.get_api_key(provider),
+            **config_obj.model_dump()
         )
     else:
         raise ValueError(f"Unsupported provider: {provider}")
