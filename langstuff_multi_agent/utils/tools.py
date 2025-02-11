@@ -392,7 +392,7 @@ def get_tool_node(tools: List[Any]) -> ToolNode:
 
     Args:
         tools: List of @tool-decorated functions to include in the node
-   
+
     Returns:
         Properly configured ToolNode instance
     """

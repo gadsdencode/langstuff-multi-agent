@@ -8,13 +8,13 @@ information using various tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, news_tool, has_tool_calls
+from langstuff_multi_agent.utils.tools import search_web, news_tool, has_tool_calls, calc_tool
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
 researcher_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define research tools
-tools = [search_web, news_tool]
+tools = [search_web, news_tool, calc_tool]
 tool_node = ToolNode(tools)
 
 
@@ -36,7 +36,8 @@ def research(state, config):
                             "You are a Researcher Agent. Your task is to gather and summarize news and research information.\n\n"
                             "You have access to the following tools:\n"
                             "- search_web: Look up recent information and background data.\n"
-                            "- news_tool: Retrieve the latest news headlines and articles.\n\n"
+                            "- news_tool: Retrieve the latest news headlines and articles.\n"
+                            "- calc_tool: Perform calculations and mathematical operations.\n\n"
                             "Instructions:\n"
                             "1. Analyze the user's research query.\n"
                             "2. Use the available tools to gather accurate and relevant information.\n"
