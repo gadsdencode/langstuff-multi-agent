@@ -25,6 +25,7 @@ import contextlib
 from langchain_core.tools import tool
 from typing import Dict, Any, Optional, List
 from langstuff_multi_agent.config import get_llm
+from langgraph.prebuilt import ToolNode  # @Web: GitHub issue shows correct import path
 
 
 def has_tool_calls(message: Dict[str, Any]) -> bool:
@@ -379,3 +380,22 @@ def news_tool(topic: str) -> str:
         source = article.get("source", {}).get("name", "Unknown source")
         results.append(f"{title} ({source})")
     return "\n".join(results)
+
+
+# ---------------------------
+# TOOL NODE
+# ---------------------------
+
+@tool
+def tool_node(tools: List[Any]) -> ToolNode:
+    """
+    Creates a LangGraph ToolNode from registered tools.
+    Required for LangGraph workflow integration.
+
+    :param tools: List of @tool-decorated functions
+    :return: Configured ToolNode instance
+    """
+    try:
+        return ToolNode(tools)
+    except NameError:
+        raise ImportError("LangGraph version mismatch. Ensure langgraph>=0.1.2 is installed")
