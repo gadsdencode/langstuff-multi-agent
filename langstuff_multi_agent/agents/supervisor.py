@@ -99,28 +99,17 @@ def route_query(state: RouterInput):
 def create_supervisor_workflow():
     builder = StateGraph(RouterInput)
 
-    # Compile subgraphs first
-    debugger_chain = debugger_graph.compile()
-    context_manager_chain = context_manager_graph.compile()
-    project_manager_chain = project_manager_graph.compile()
-    professional_coach_chain = professional_coach_graph.compile()
-    life_coach_chain = life_coach_graph.compile()
-    coder_chain = coder_graph.compile()
-    analyst_chain = analyst_graph.compile()
-    researcher_chain = researcher_graph.compile()
-    general_assistant_chain = general_assistant_graph.compile()
-
-    # Define nodes
+    # Add nodes using imported compiled graphs
     builder.add_node("route_query", route_query)
-    builder.add_node("debugger", debugger_chain)
-    builder.add_node("context_manager", context_manager_chain)
-    builder.add_node("project_manager", project_manager_chain)
-    builder.add_node("professional_coach", professional_coach_chain)
-    builder.add_node("life_coach", life_coach_chain)
-    builder.add_node("coder", coder_chain)
-    builder.add_node("analyst", analyst_chain)
-    builder.add_node("researcher", researcher_chain)
-    builder.add_node("general_assistant", general_assistant_chain)
+    builder.add_node("debugger", debugger_graph)
+    builder.add_node("context_manager", context_manager_graph)
+    builder.add_node("project_manager", project_manager_graph)
+    builder.add_node("professional_coach", professional_coach_graph)
+    builder.add_node("life_coach", life_coach_graph)
+    builder.add_node("coder", coder_graph)
+    builder.add_node("analyst", analyst_graph)
+    builder.add_node("researcher", researcher_graph)
+    builder.add_node("general_assistant", general_assistant_graph)
 
     # Conditional edges
     def decide_routes(state: RouteDecision):
