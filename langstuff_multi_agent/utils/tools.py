@@ -1,70 +1,131 @@
 # langstuff_multi_agent/utils/tools.py
 """
-This module defines various utility tools for the LangGraph multi-agent AI.
-Each tool is decorated with @tool from langchain_core.tools for compatibility
-with LangGraph. The tools include:
+This module defines various utility tools for the LangGraph multi-agent AI project.
+Each tool is decorated with @tool from langchain_core.tools to ensure compatibility
+with LangGraph. These tools are now implemented to be fully functional.
 
-  - search_web: Simulates a web search.
-  - python_repl: Simulates executing Python code.
-  - read_file: Reads file contents.
-  - write_file: Writes content to a file.
-  - calendar_tool: Simulates calendar updates.
-  - task_tracker_tool: Simulates task tracking updates.
-  - job_search_tool: Simulates job search results.
-  - get_current_weather: Simulates current weather information.
-  - calc_tool: Evaluates a mathematical expression.
-  - news_tool: Simulates retrieving news headlines.
+The tools include:
+  - search_web: Perform an actual web search via SerpAPI.
+  - python_repl: Execute Python code in a restricted environment.
+  - read_file: Read file contents from disk.
+  - write_file: Write content to a file on disk.
+  - calendar_tool: Append event details to a local calendar file.
+  - task_tracker_tool: Insert tasks into a local SQLite database.
+  - job_search_tool: Perform job search queries via SerpAPI.
+  - get_current_weather: Retrieve weather data via OpenWeatherMap.
+  - calc_tool: Evaluate mathematical expressions safely.
+  - news_tool: Retrieve news headlines using NewsAPI.
 """
 
+import os
+import requests
+import sqlite3
+import io
+import contextlib
 from langchain_core.tools import tool
 
 
+# ---------------------------
+# REAL WEB SEARCH TOOL
+# ---------------------------
 @tool
 def search_web(query: str) -> str:
     """
-    Simulates a web search for the given query.
+    Performs a real web search using SerpAPI.
+    Requires SERPAPI_API_KEY to be set as an environment variable.
 
     :param query: The search query.
-    :return: A simulated search result.
+    :return: A string with a summary of top search results.
     """
-    return f"Simulated search result for query: '{query}'."
+    api_key = os.environ.get("SERPAPI_API_KEY")
+    if not api_key:
+        raise ValueError("SERPAPI_API_KEY environment variable not set")
+    params = {
+        "engine": "google",
+        "q": query,
+        "api_key": api_key,
+        "num": 5,
+    }
+    response = requests.get("https://serpapi.com/search", params=params)
+    if response.status_code != 200:
+        return f"Error performing web search: {response.text}"
+    data = response.json()
+    results = []
+    for result in data.get("organic_results", []):
+        title = result.get("title", "No title")
+        snippet = result.get("snippet", "")
+        link = result.get("link", "")
+        results.append(f"{title}: {snippet} ({link})")
+    return "\n".join(results)
 
 
+# ---------------------------
+# PYTHON REPL TOOL
+# ---------------------------
 @tool
 def python_repl(code: str) -> str:
     """
-    Simulates executing Python code.
+    Executes Python code in a restricted environment.
 
-    :param code: Python code as a string.
-    :return: Simulated output from executing the code.
+    WARNING: Executing arbitrary code can be dangerous. This implementation uses a
+    limited set of safe built-ins. In production, consider a proper sandbox.
+
+    :param code: The Python code to execute.
+    :return: The output produced by the code.
     """
     try:
-        # WARNING: In production, executing code via eval/exec can be dangerous.
-        # Here, we simulate code execution without running untrusted code.
-        return f"Simulated execution output for code: '{code}'."
+        # Define a restricted set of safe built-ins.
+        safe_builtins = {
+            "print": print,
+            "range": range,
+            "len": len,
+            "str": str,
+            "int": int,
+            "float": float,
+            "bool": bool,
+            "list": list,
+            "dict": dict,
+            "set": set,
+            "min": min,
+            "max": max,
+            "sum": sum,
+        }
+        restricted_globals = {"__builtins__": safe_builtins}
+        restricted_locals = {}
+        # Capture the output of the exec call.
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exec(code, restricted_globals, restricted_locals)
+        return output.getvalue()
     except Exception as e:
-        return f"Error during simulated code execution: {str(e)}"
+        return f"Error during code execution: {str(e)}"
 
 
+# ---------------------------
+# READ FILE TOOL
+# ---------------------------
 @tool
 def read_file(filepath: str) -> str:
     """
-    Reads the content of a file.
+    Reads the content of a file from disk.
 
     :param filepath: The path to the file.
     :return: The file's content or an error message.
     """
     try:
-        with open(filepath, 'r') as file:
+        with open(filepath, 'r', encoding="utf-8") as file:
             return file.read()
     except Exception as e:
         return f"Error reading file '{filepath}': {str(e)}"
 
 
+# ---------------------------
+# WRITE FILE TOOL
+# ---------------------------
 @tool
 def write_file(params: dict) -> str:
     """
-    Writes content to a file.
+    Writes content to a file on disk.
 
     Expects a dictionary with the keys:
       - 'filepath': The path to the file.
@@ -76,79 +137,197 @@ def write_file(params: dict) -> str:
     try:
         filepath = params.get("filepath")
         content = params.get("content", "")
-        with open(filepath, 'w') as file:
+        with open(filepath, 'w', encoding="utf-8") as file:
             file.write(content)
         return f"Successfully wrote to '{filepath}'."
     except Exception as e:
         return f"Error writing to file '{filepath}': {str(e)}"
 
 
+# ---------------------------
+# CALENDAR TOOL
+# ---------------------------
 @tool
 def calendar_tool(event_details: str) -> str:
     """
-    Simulates updating a calendar with event details.
+    Adds an event to a local calendar file.
+
+    This implementation appends the event details to a file named 'calendar.txt'.
 
     :param event_details: Details of the event.
     :return: Confirmation message.
     """
-    return f"Calendar updated with event: {event_details}"
+    try:
+        with open("calendar.txt", "a", encoding="utf-8") as f:
+            f.write(event_details + "\n")
+        return f"Event added to calendar: {event_details}"
+    except Exception as e:
+        return f"Error updating calendar: {str(e)}"
+
+
+# ---------------------------
+# TASK TRACKER TOOL (using SQLite)
+# ---------------------------
+# Initialize the SQLite database for task tracking.
+def init_task_db():
+    conn = sqlite3.connect("tasks.db")
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_details TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_task_db()
 
 
 @tool
 def task_tracker_tool(task_details: str) -> str:
     """
-    Simulates updating a task tracker with task details.
+    Adds a new task to the task tracker using a local SQLite database.
 
     :param task_details: Details of the task.
     :return: Confirmation message.
     """
-    return f"Task tracker updated with task: {task_details}"
+    try:
+        conn = sqlite3.connect("tasks.db")
+        c = conn.cursor()
+        c.execute("INSERT INTO tasks (task_details) VALUES (?)", (task_details,))
+        conn.commit()
+        task_id = c.lastrowid
+        conn.close()
+        return f"Task {task_id} added: {task_details}"
+    except Exception as e:
+        return f"Error adding task: {str(e)}"
 
 
+# ---------------------------
+# JOB SEARCH TOOL (using SerpAPI for Google Jobs)
+# ---------------------------
 @tool
 def job_search_tool(query: str) -> str:
     """
-    Simulates a job search based on the given query.
+    Performs a job search using the SerpAPI Google Jobs engine.
+
+    Requires SERPAPI_API_KEY to be set as an environment variable.
 
     :param query: The job search query.
-    :return: Simulated job listings.
+    :return: A summary string of job listings.
     """
-    return f"Simulated job listings for query: '{query}'."
+    api_key = os.environ.get("SERPAPI_API_KEY")
+    if not api_key:
+        raise ValueError("SERPAPI_API_KEY environment variable not set")
+    params = {
+        "engine": "google_jobs",
+        "q": query,
+        "api_key": api_key,
+    }
+    response = requests.get("https://serpapi.com/search", params=params)
+    if response.status_code != 200:
+        return f"Error performing job search: {response.text}"
+    data = response.json()
+    results = []
+    for job in data.get("job_results", []):
+        title = job.get("title", "No title")
+        company = job.get("company", "Unknown")
+        location = job.get("location", "Unknown")
+        snippet = job.get("snippet", "")
+        results.append(f"{title} at {company} in {location}: {snippet}")
+    return "\n".join(results)
 
 
+# ---------------------------
+# CURRENT WEATHER TOOL (using OpenWeatherMap)
+# ---------------------------
 @tool
 def get_current_weather(location: str) -> str:
     """
-    Simulates retrieving current weather information for a given location.
+    Retrieves current weather information for a given location using the OpenWeatherMap API.
 
-    :param location: The location for which to retrieve weather.
-    :return: Simulated weather details.
+    Requires OPENWEATHER_API_KEY to be set as an environment variable.
+
+    :param location: The city name for which to retrieve weather.
+    :return: Weather details as a string.
     """
-    return f"Simulated weather for {location}: 75°F, Sunny."
+    api_key = os.environ.get("OPENWEATHER_API_KEY")
+    if not api_key:
+        raise ValueError("OPENWEATHER_API_KEY environment variable not set")
+    params = {
+        "q": location,
+        "appid": api_key,
+        "units": "imperial"  # Fahrenheit
+    }
+    response = requests.get("http://api.openweathermap.org/data/2.5/weather", params=params)
+    if response.status_code != 200:
+        return f"Error fetching weather: {response.text}"
+    data = response.json()
+    temp = data["main"]["temp"]
+    wind_speed = data["wind"]["speed"]
+    wind_direction = data["wind"].get("deg", "N/A")
+    return f"Current weather in {location}: {temp}°F, wind {wind_speed} mph at {wind_direction}°"
 
 
+# ---------------------------
+# CALCULATION TOOL
+# ---------------------------
 @tool
 def calc_tool(expression: str) -> str:
     """
-    Evaluates a simple mathematical expression.
+    Evaluates a simple mathematical expression safely.
+
+    Uses eval with a restricted __builtins__.
 
     :param expression: A string containing the mathematical expression.
     :return: The result as a string or an error message.
     """
     try:
-        # Evaluate the expression safely using a restricted namespace.
-        result = eval(expression, {"__builtins__": {}})
+        safe_builtins = {
+            "abs": abs,
+            "round": round,
+            "min": min,
+            "max": max,
+            "sum": sum,
+        }
+        result = eval(expression, {"__builtins__": safe_builtins}, {})
         return str(result)
     except Exception as e:
         return f"Error evaluating expression: {str(e)}"
 
 
+# ---------------------------
+# NEWS TOOL (using NewsAPI)
+# ---------------------------
 @tool
 def news_tool(topic: str) -> str:
     """
-    Simulates retrieving news headlines for a given topic.
+    Retrieves news headlines for a given topic using the NewsAPI.
+
+    Requires NEWSAPI_API_KEY to be set as an environment variable.
 
     :param topic: The news topic.
-    :return: Simulated news headlines.
+    :return: A summary string of news headlines.
     """
-    return f"Simulated news headlines for topic: '{topic}'."
+    api_key = os.environ.get("NEWSAPI_API_KEY")
+    if not api_key:
+        raise ValueError("NEWSAPI_API_KEY environment variable not set")
+    params = {
+        "q": topic,
+        "apiKey": api_key,
+        "pageSize": 5,
+        "sortBy": "relevancy",
+    }
+    response = requests.get("https://newsapi.org/v2/everything", params=params)
+    if response.status_code != 200:
+        return f"Error fetching news: {response.text}"
+    data = response.json()
+    results = []
+    for article in data.get("articles", []):
+        title = article.get("title", "No title")
+        source = article.get("source", {}).get("name", "Unknown source")
+        results.append(f"{title} ({source})")
+    return "\n".join(results)

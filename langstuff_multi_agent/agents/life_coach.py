@@ -1,4 +1,4 @@
-# agents/life_coach.py
+# langstuff_multi_agent/agents/life_coach.py
 """
 Life Coach Agent module for personal advice and guidance.
 
@@ -8,7 +8,7 @@ personal development advice using various tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, get_current_weather, calendar_tool
+from langstuff_multi_agent.utils.tools import search_web, get_current_weather, calendar_tool, has_tool_calls
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
@@ -18,12 +18,11 @@ life_coach_workflow = StateGraph(MessagesState, ConfigSchema)
 tools = [search_web, get_current_weather, calendar_tool]
 tool_node = ToolNode(tools)
 
+
 def life_coach(state, config):
     """Provide life coaching with configuration support."""
-    # Get LLM with configuration
     llm = get_llm(config.get("configurable", {}))
     llm = llm.bind_tools(tools)
-    
     return {
         "messages": [
             llm.invoke(
@@ -48,25 +47,18 @@ def life_coach(state, config):
         ]
     }
 
-# Define the main node with configuration support
+
 life_coach_workflow.add_node("life_coach", life_coach)
 life_coach_workflow.add_node("tools", tool_node)
 
-# Define control flow edges
 life_coach_workflow.add_edge(START, "life_coach")
 
-# Add conditional edge from life_coach to either tools or END
 life_coach_workflow.add_conditional_edges(
     "life_coach",
-    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
-    {
-        "tools": "tools",
-        "END": END
-    }
+    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    {"tools": "tools", "END": END}
 )
 
-# Add edge from tools back to life_coach
 life_coach_workflow.add_edge("tools", "life_coach")
 
-# Export the workflow
 __all__ = ["life_coach_workflow"]

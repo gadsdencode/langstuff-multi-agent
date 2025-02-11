@@ -1,4 +1,4 @@
-# agents/coder.py
+# langstuff_multi_agent/agents/coder.py
 """
 Coder Agent module for writing and improving code.
 
@@ -8,22 +8,22 @@ and optimization using various development tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, python_repl, read_file, write_file
+from langstuff_multi_agent.utils.tools import search_web, python_repl, read_file, write_file, has_tool_calls
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
 coder_workflow = StateGraph(MessagesState, ConfigSchema)
 
-# Define tools for coding tasks
+# Define tools for coding tasks.
 tools = [search_web, python_repl, read_file, write_file]
 tool_node = ToolNode(tools)
 
+
 def code(state, config):
     """Write and improve code with configuration support."""
-    # Get LLM with configuration
     llm = get_llm(config.get("configurable", {}))
     llm = llm.bind_tools(tools)
-    
+
     return {
         "messages": [
             llm.invoke(
@@ -48,25 +48,21 @@ def code(state, config):
         ]
     }
 
-# Define the main node with configuration support
+
 coder_workflow.add_node("code", code)
 coder_workflow.add_node("tools", tool_node)
 
-# Define control flow edges
 coder_workflow.add_edge(START, "code")
 
-# Add conditional edge from code to either tools or END
 coder_workflow.add_conditional_edges(
     "code",
-    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
+    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
     {
         "tools": "tools",
         "END": END
     }
 )
 
-# Add edge from tools back to code
 coder_workflow.add_edge("tools", "code")
 
-# Export the workflow
 __all__ = ["coder_workflow"]

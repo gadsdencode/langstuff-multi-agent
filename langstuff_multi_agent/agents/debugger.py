@@ -1,4 +1,4 @@
-# agents/debugger.py
+# langstuff_multi_agent/agents/debugger.py
 """
 Debugger Agent module for analyzing code and identifying errors.
 
@@ -8,12 +8,7 @@ and LLM-based analysis.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import (
-    search_web,
-    python_repl,
-    read_file,
-    write_file
-)
+from langstuff_multi_agent.utils.tools import search_web, python_repl, read_file, write_file, has_tool_calls
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
@@ -23,12 +18,11 @@ debugger_workflow = StateGraph(MessagesState, ConfigSchema)
 tools = [search_web, python_repl, read_file, write_file]
 tool_node = ToolNode(tools)
 
+
 def analyze_code(state, config):
     """Analyze code and identify errors with configuration support."""
-    # Get LLM with configuration
     llm = get_llm(config.get("configurable", {}))
     llm = llm.bind_tools(tools)
-    
     return {
         "messages": [
             llm.invoke(
@@ -55,29 +49,18 @@ def analyze_code(state, config):
         ]
     }
 
-# Define the main agent node with configuration support
+
 debugger_workflow.add_node("analyze_code", analyze_code)
 debugger_workflow.add_node("tools", tool_node)
 
-# Define the control flow edges:
-# 1. Start at 'analyze_code'.
-# 2. If any message contains tool_calls, transition from 'analyze_code' to 'tools'.
-# 3. After running tools, loop back to 'analyze_code'.
-# 4. If no tool_calls remain, finish.
 debugger_workflow.add_edge(START, "analyze_code")
 
-# Add conditional edge from analyze_code to either tools or END
 debugger_workflow.add_conditional_edges(
     "analyze_code",
-    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
-    {
-        "tools": "tools",
-        "END": END
-    }
+    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    {"tools": "tools", "END": END}
 )
 
-# Add edge from tools back to analyze_code
 debugger_workflow.add_edge("tools", "analyze_code")
 
-# Export the workflow
 __all__ = ["debugger_workflow"]

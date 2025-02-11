@@ -10,6 +10,10 @@ Supported providers:
   - "anthropic": Uses ChatAnthropic with the key from ANTHROPIC_API_KEY.
   - "openai": Uses ChatOpenAI with the key from OPENAI_API_KEY.
   - "grok" (or "xai"): Uses ChatOpenAI as an interface to Grok with the key from XAI_API_KEY.
+
+Note: The LLM instances returned by get_llm() support structured output via the 
+.with_structured_output() method. This is essential for our supervisor routing
+logic and agent structured responses.
 """
 
 import os
@@ -90,7 +94,7 @@ class Config:
             "anthropic": ("ANTHROPIC_API_KEY", cls.ANTHROPIC_API_KEY),
             "grok": ("XAI_API_KEY", cls.XAI_API_KEY),
         }
-        
+
         env_var, key = key_map.get(provider, (None, None))
         if not key:
             raise ValueError(f"{env_var} environment variable not set")
@@ -109,6 +113,8 @@ class ModelConfig(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 2048
     streaming: bool = True
+    # Optional parameter for specifying the structured output method (e.g., "json_schema", "tool_calling")
+    structured_output_method: Optional[str] = None
 
 
 def get_model_instance(provider: str, **kwargs):
@@ -116,55 +122,65 @@ def get_model_instance(provider: str, **kwargs):
     if not provider or provider not in Config.MODEL_CONFIGS:
         available = list(Config.MODEL_CONFIGS.keys())
         raise ValueError(f"Invalid LLM provider: {provider}. Available: {available}")
-    
+
     try:
         # Validate configuration against schema
-        config = ModelConfig(
+        config_obj = ModelConfig(
             provider=provider,
             **{**Config.MODEL_CONFIGS[provider], **kwargs}
         )
     except ValidationError as e:
         error_messages = [f"{err['loc'][0]}: {err['msg']}" for err in e.errors()]
-        raise ValueError(f"Invalid model configuration:\n" + "\n".join(error_messages))
-    
+        raise ValueError(
+            f"Invalid model configuration:\n{'\n'.join(error_messages)}"
+        )
+
+    # Pop structured_output_method if provided, so it's not passed to the LLM constructor.
+    structured_output_method = kwargs.pop("structured_output_method", None)
+    if structured_output_method:
+        logging.info("Structured output method specified: %s", structured_output_method)
+
+    logging.info("Creating model instance for provider: %s with model: %s, temperature: %s, max_tokens: %s",
+                 provider, config_obj.model_name, config_obj.temperature, config_obj.max_tokens)
+
     if provider == "anthropic":
         return ChatAnthropic(
             api_key=Config.get_api_key("anthropic"),
-            **config.model_dump()
+            **config_obj.model_dump(exclude={"structured_output_method"})
         )
     elif provider in ["openai"]:
         return ChatOpenAI(
             api_key=Config.get_api_key("openai"),
-            **config.model_dump()
+            **config_obj.model_dump(exclude={"structured_output_method"})
         )
     elif provider in ["grok"]:
         return ChatOpenAI(
             api_key=Config.get_api_key("grok"),
-            **config.model_dump()
+            **config_obj.model_dump(exclude={"structured_output_method"})
         )
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
 
-
 def get_llm(configurable: dict = {}):
     """
     Factory function to create a language model instance based on configuration.
-    
+
     Args:
         configurable: Optional configuration dictionary that can include:
-               - model: Provider name ("anthropic", "openai", "grok")
+               - provider: Provider name ("anthropic", "openai", "grok", etc.)
                - system_message: Optional system message to prepend
                - temperature: Temperature parameter for generation
                - top_p: Top-p parameter for generation
                - max_tokens: Maximum tokens to generate
+               - model_kwargs: Additional keyword arguments for the model (e.g., structured_output_method)
 
     Returns:
-        An instance of BaseChatModel configured according to the specified parameters
+        An instance of BaseChatModel configured according to the specified parameters.
+        Note: The returned LLM instance supports structured output via .with_structured_output().
     """
     provider = configurable.get('provider', 'openai')  # Set default provider
     model_kwargs = configurable.get('model_kwargs', {})
-    
     return get_model_instance(provider, **model_kwargs)
 
 
@@ -175,18 +191,17 @@ def create_model_config(
 ) -> RunnableConfig:
     """
     Create a RunnableConfig for LangGraph workflow configuration.
-    
+
     Args:
-        model: Optional model provider to use
-        system_message: Optional system message to prepend
-        **kwargs: Additional configuration parameters
-        
+        model: Optional model provider to use.
+        system_message: Optional system message to prepend.
+        **kwargs: Additional configuration parameters.
+
     Returns:
-        RunnableConfig with the specified configuration
+        RunnableConfig with the specified configuration.
     """
     config = {"model": model} if model else {}
     if system_message:
         config["system_message"] = system_message
     config.update(kwargs)
-    
     return {"configurable": config}

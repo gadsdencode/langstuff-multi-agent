@@ -1,4 +1,4 @@
-# agents/analyst.py
+# langstuff_multi_agent/agents/analyst.py
 """
 Analyst Agent module for data analysis and interpretation.
 
@@ -8,11 +8,7 @@ calculations using various tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import (
-    search_web,
-    python_repl,
-    calc_tool
-)
+from langstuff_multi_agent.utils.tools import search_web, python_repl, calc_tool, has_tool_calls
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
@@ -22,12 +18,11 @@ analyst_workflow = StateGraph(MessagesState, ConfigSchema)
 tools = [search_web, python_repl, calc_tool]
 tool_node = ToolNode(tools)
 
+
 def analyze_data(state, config):
     """Analyze data with configuration support."""
-    # Get LLM with configuration
     llm = get_llm(config.get("configurable", {}))
     llm = llm.bind_tools(tools)
-    
     return {
         "messages": [
             llm.invoke(
@@ -51,25 +46,18 @@ def analyze_data(state, config):
         ]
     }
 
-# Define the main node with configuration support
+
 analyst_workflow.add_node("analyze_data", analyze_data)
 analyst_workflow.add_node("tools", tool_node)
 
-# Define control flow edges
 analyst_workflow.add_edge(START, "analyze_data")
 
-# Add conditional edge from analyze_data to either tools or END
 analyst_workflow.add_conditional_edges(
     "analyze_data",
-    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
-    {
-        "tools": "tools",
-        "END": END
-    }
+    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    {"tools": "tools", "END": END}
 )
 
-# Add edge from tools back to analyze_data
 analyst_workflow.add_edge("tools", "analyze_data")
 
-# Export the workflow
 __all__ = ["analyst_workflow"]

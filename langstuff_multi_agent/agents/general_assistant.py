@@ -1,4 +1,4 @@
-# agents/general_assistant.py
+# langstuff_multi_agent/agents/general_assistant.py
 """
 General Assistant Agent module for handling diverse queries.
 
@@ -8,7 +8,7 @@ using a variety of tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, get_current_weather
+from langstuff_multi_agent.utils.tools import search_web, get_current_weather, has_tool_calls
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
@@ -18,12 +18,11 @@ general_assistant_workflow = StateGraph(MessagesState, ConfigSchema)
 tools = [search_web, get_current_weather]
 tool_node = ToolNode(tools)
 
+
 def assist(state, config):
     """Provide general assistance with configuration support."""
-    # Get LLM with configuration
     llm = get_llm(config.get("configurable", {}))
     llm = llm.bind_tools(tools)
-    
     return {
         "messages": [
             llm.invoke(
@@ -46,25 +45,18 @@ def assist(state, config):
         ]
     }
 
-# Define the main node with configuration support
+
 general_assistant_workflow.add_node("assist", assist)
 general_assistant_workflow.add_node("tools", tool_node)
 
-# Define control flow edges
 general_assistant_workflow.add_edge(START, "assist")
 
-# Add conditional edge from assist to either tools or END
 general_assistant_workflow.add_conditional_edges(
     "assist",
-    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
-    {
-        "tools": "tools",
-        "END": END
-    }
+    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    {"tools": "tools", "END": END}
 )
 
-# Add edge from tools back to assist
 general_assistant_workflow.add_edge("tools", "assist")
 
-# Export the workflow
 __all__ = ["general_assistant_workflow"]

@@ -1,4 +1,4 @@
-# agents/project_manager.py
+# langstuff_multi_agent/agents/project_manager.py
 """
 Project Manager Agent module for task and timeline management.
 
@@ -8,11 +8,7 @@ and coordinating tasks using various tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import (
-    search_web,
-    calendar_tool,
-    task_tracker_tool
-)
+from langstuff_multi_agent.utils.tools import search_web, calendar_tool, task_tracker_tool, has_tool_calls
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
@@ -22,12 +18,11 @@ project_manager_workflow = StateGraph(MessagesState, ConfigSchema)
 tools = [search_web, calendar_tool, task_tracker_tool]
 tool_node = ToolNode(tools)
 
+
 def manage_project(state, config):
     """Manage project with configuration support."""
-    # Get LLM with configuration
     llm = get_llm(config.get("configurable", {}))
     llm = llm.bind_tools(tools)
-    
     return {
         "messages": [
             llm.invoke(
@@ -52,25 +47,18 @@ def manage_project(state, config):
         ]
     }
 
-# Define the main node with configuration support
+
 project_manager_workflow.add_node("manage_project", manage_project)
 project_manager_workflow.add_node("tools", tool_node)
 
-# Define control flow edges
 project_manager_workflow.add_edge(START, "manage_project")
 
-# Add conditional edge from manage_project to either tools or END
 project_manager_workflow.add_conditional_edges(
     "manage_project",
-    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
-    {
-        "tools": "tools",
-        "END": END
-    }
+    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    {"tools": "tools", "END": END}
 )
 
-# Add edge from tools back to manage_project
 project_manager_workflow.add_edge("tools", "manage_project")
 
-# Export the workflow
 __all__ = ["project_manager_workflow"]

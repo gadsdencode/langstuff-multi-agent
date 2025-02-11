@@ -1,4 +1,4 @@
-# agents/researcher.py
+# langstuff_multi_agent/agents/researcher.py
 """
 Researcher Agent module for gathering and summarizing information.
 
@@ -8,7 +8,7 @@ information using various tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, news_tool
+from langstuff_multi_agent.utils.tools import search_web, news_tool, has_tool_calls
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
@@ -18,12 +18,11 @@ researcher_workflow = StateGraph(MessagesState, ConfigSchema)
 tools = [search_web, news_tool]
 tool_node = ToolNode(tools)
 
+
 def research(state, config):
     """Conduct research with configuration support."""
-    # Get LLM with configuration
     llm = get_llm(config.get("configurable", {}))
     llm = llm.bind_tools(tools)
-    
     return {
         "messages": [
             llm.invoke(
@@ -46,25 +45,18 @@ def research(state, config):
         ]
     }
 
-# Define the main node with configuration support
+
 researcher_workflow.add_node("research", research)
 researcher_workflow.add_node("tools", tool_node)
 
-# Define control flow edges
 researcher_workflow.add_edge(START, "research")
 
-# Add conditional edge from research to either tools or END
 researcher_workflow.add_conditional_edges(
     "research",
-    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
-    {
-        "tools": "tools",
-        "END": END
-    }
+    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    {"tools": "tools", "END": END}
 )
 
-# Add edge from tools back to research
 researcher_workflow.add_edge("tools", "research")
 
-# Export the workflow
 __all__ = ["researcher_workflow"]

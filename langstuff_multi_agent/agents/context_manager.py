@@ -1,4 +1,4 @@
-# agents/context_manager.py
+# langstuff_multi_agent/agents/context_manager.py
 """
 Context Manager Agent module for tracking conversation context.
 
@@ -8,7 +8,7 @@ and maintaining context across interactions.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, read_file, write_file
+from langstuff_multi_agent.utils.tools import search_web, read_file, write_file, has_tool_calls
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
@@ -18,12 +18,11 @@ context_manager_workflow = StateGraph(MessagesState, ConfigSchema)
 tools = [search_web, read_file, write_file]
 tool_node = ToolNode(tools)
 
+
 def manage_context(state, config):
     """Manage conversation context with configuration support."""
-    # Get LLM with configuration
     llm = get_llm(config.get("configurable", {}))
     llm = llm.bind_tools(tools)
-    
     return {
         "messages": [
             llm.invoke(
@@ -49,25 +48,18 @@ def manage_context(state, config):
         ]
     }
 
-# Define the main node with configuration support
+
 context_manager_workflow.add_node("manage_context", manage_context)
 context_manager_workflow.add_node("tools", tool_node)
 
-# Define the control flow edges
 context_manager_workflow.add_edge(START, "manage_context")
 
-# Add conditional edge from manage_context to either tools or END
 context_manager_workflow.add_conditional_edges(
     "manage_context",
-    lambda state: "tools" if any(hasattr(msg, "tool_calls") and msg.tool_calls for msg in state["messages"]) else "END",
-    {
-        "tools": "tools",
-        "END": END
-    }
+    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    {"tools": "tools", "END": END}
 )
 
-# Add edge from tools back to manage_context
 context_manager_workflow.add_edge("tools", "manage_context")
 
-# Export the workflow
 __all__ = ["context_manager_workflow"]
