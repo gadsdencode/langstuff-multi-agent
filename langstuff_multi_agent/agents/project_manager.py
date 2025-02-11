@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 
 from langstuff_multi_agent.utils.tools import tool_node
 from langstuff_multi_agent.config import get_llm
-from langstuff_multi_agent.utils import has_tool_calls
+from langstuff_multi_agent.utils.tools import has_tool_calls
 
 
 def manage(state):
