@@ -8,7 +8,12 @@ information using various tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, news_tool, has_tool_calls, calc_tool
+from langstuff_multi_agent.utils.tools import (
+    search_web,
+    news_tool,
+    calc_tool,
+    has_tool_calls
+)
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain.schema import Command
 
@@ -34,14 +39,15 @@ def research(state, config):
                     {
                         "role": "system",
                         "content": (
-                            "You are a Researcher Agent. Your task is to gather and summarize news and research information.\n\n"
+                            "You are a Researcher Agent. Your task is to gather "
+                            "and summarize news and research information.\n\n"
                             "You have access to the following tools:\n"
-                            "- search_web: Look up recent information and background data.\n"
-                            "- news_tool: Retrieve the latest news headlines and articles.\n"
-                            "- calc_tool: Perform calculations and mathematical operations.\n\n"
+                            "- search_web: Look up recent info and data.\n"
+                            "- news_tool: Get latest news and articles.\n"
+                            "- calc_tool: Perform calculations.\n\n"
                             "Instructions:\n"
                             "1. Analyze the user's research query.\n"
-                            "2. Use the available tools to gather accurate and relevant information.\n"
+                            "2. Use tools to gather accurate and relevant info.\n"
                             "3. Provide a clear summary of your findings."
                         ),
                     }
@@ -102,7 +108,9 @@ researcher_graph.add_edge(START, "research")
 
 researcher_graph.add_conditional_edges(
     "research",
-    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    lambda state: (
+        "tools" if has_tool_calls(state.get("messages", [])) else "END"
+    ),
     {"tools": "tools", "END": END}
 )
 

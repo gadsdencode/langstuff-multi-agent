@@ -10,7 +10,8 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 import re
 import uuid
-from langchain.tools import tool, ToolMessage, ToolCall
+from langchain_community.tools import tool
+from langchain_core.tools import ToolMessage, ToolCall
 from langchain.schema import Command, AIMessage, BaseTool
 from typing_extensions import Annotated
 from langchain_core.tools import InjectedToolCallId

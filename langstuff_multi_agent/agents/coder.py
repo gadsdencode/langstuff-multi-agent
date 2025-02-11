@@ -8,7 +8,14 @@ and optimization using various development tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, python_repl, read_file, write_file, calc_tool, has_tool_calls
+from langstuff_multi_agent.utils.tools import (
+    search_web,
+    python_repl,
+    read_file,
+    write_file,
+    calc_tool,
+    has_tool_calls
+)
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain.schema import Command
 
@@ -35,16 +42,19 @@ def code(state, config):
                     {
                         "role": "system",
                         "content": (
-                            "You are a Coder Agent. Your task is to write, debug, and improve code.\n\n"
+                            "You are a Coder Agent. Your task is to write, debug, "
+                            "and improve code.\n\n"
                             "You have access to the following tools:\n"
-                            "- search_web: Find coding examples and documentation.\n"
-                            "- python_repl: Execute and test Python code snippets.\n"
+                            "- search_web: Find coding examples and docs.\n"
+                            "- python_repl: Execute and test Python code.\n"
                             "- read_file: Retrieve code from files.\n"
                             "- write_file: Save code modifications to files.\n\n"
                             "Instructions:\n"
                             "1. Analyze the user's code or coding request.\n"
-                            "2. Provide solutions, test code, and explain your reasoning.\n"
-                            "3. Use the available tools to execute code and verify fixes as necessary."
+                            "2. Provide solutions, test code, and explain your "
+                            "reasoning.\n"
+                            "3. Use the available tools to execute code and verify "
+                            "fixes as necessary."
                         ),
                     }
                 ]
@@ -104,7 +114,9 @@ coder_graph.add_edge(START, "code")
 
 coder_graph.add_conditional_edges(
     "code",
-    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    lambda state: (
+        "tools" if has_tool_calls(state.get("messages", [])) else "END"
+    ),
     {"tools": "tools", "END": END}
 )
 

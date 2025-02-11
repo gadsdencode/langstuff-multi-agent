@@ -113,7 +113,9 @@ context_manager_workflow.set_entry_point("manage_context")
 context_manager_workflow.add_edge(START, "manage_context")
 context_manager_workflow.add_conditional_edges(
     "manage_context",
-    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else END,
+    lambda state: (
+        "tools" if has_tool_calls(state.get("messages", [])) else END
+    ),
     {"tools": "tools", END: END}
 )
 context_manager_workflow.add_edge("tools", "process_results")

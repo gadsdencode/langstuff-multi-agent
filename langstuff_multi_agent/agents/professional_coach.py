@@ -86,7 +86,9 @@ professional_coach_graph.add_edge(START, "coach")
 
 professional_coach_graph.add_conditional_edges(
     "coach",
-    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    lambda state: (
+        "tools" if has_tool_calls(state.get("messages", [])) else "END"
+    ),
     {"tools": "tools", "END": END}
 )
 

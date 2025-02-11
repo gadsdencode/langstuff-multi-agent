@@ -87,7 +87,9 @@ analyst_graph.add_edge(START, "analyze_data")
 
 analyst_graph.add_conditional_edges(
     "analyze_data",
-    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    lambda state: (
+        "tools" if has_tool_calls(state.get("messages", [])) else "END"
+    ),
     {"tools": "tools", "END": END}
 )
 

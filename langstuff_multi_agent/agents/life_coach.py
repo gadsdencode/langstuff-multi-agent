@@ -87,7 +87,9 @@ life_coach_graph.add_edge(START, "life_coach")
 
 life_coach_graph.add_conditional_edges(
     "life_coach",
-    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    lambda state: (
+        "tools" if has_tool_calls(state.get("messages", [])) else "END"
+    ),
     {"tools": "tools", "END": END}
 )
 
