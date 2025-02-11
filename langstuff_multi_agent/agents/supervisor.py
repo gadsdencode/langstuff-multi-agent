@@ -68,7 +68,13 @@ class RouteDecision(BaseModel):
     )
 
 
-def route_query(state: RouterInput):
+class RouterState(RouterInput):
+    """Combined state for routing workflow"""
+    reasoning: Optional[str] = Field(None, description="Routing decision rationale")
+    destination: Optional[str] = Field(None, description="Selected agent target")
+
+
+def route_query(state: RouterState):
     """Classifies and routes user queries using structured LLM output."""
     llm = get_llm({"structured_output_method": "json_mode"})
     system = """You are an expert router for a multi-agent system. Analyze the user's query 
@@ -92,14 +98,22 @@ def route_query(state: RouterInput):
     # Use the defined constant for validation
     if decision.destination not in AVAILABLE_AGENTS:
         log_agent_failure(decision.destination, state.messages[-1].content)
-        return RouteDecision(reasoning="Fallback due to failure", destination="general_assistant")
+        return RouterState(
+            messages=state.messages,
+            reasoning="Fallback due to failure",
+            destination="general_assistant"
+        )
     else:
-        return decision
+        return RouterState(
+            messages=state.messages,
+            reasoning=decision.reasoning,
+            destination=decision.destination
+        )
 
 
 # Create and compile the supervisor workflow
 def create_supervisor_workflow():
-    builder = StateGraph(RouterInput)
+    builder = StateGraph(RouterState)
 
     # Add nodes using imported compiled graphs
     builder.add_node("route_query", route_query)
@@ -114,10 +128,10 @@ def create_supervisor_workflow():
     builder.add_node("general_assistant", general_assistant_graph)
 
     # Conditional edges
-    def decide_routes(state: RouteDecision):
+    def decide_routes(state: RouterState):
         """Handles routing decision and retries if necessary"""
-        if "error" in state.reasoning.lower():
-            return "general_assistant"  # Reroute errors to the general assistant
+        if state.reasoning and "error" in state.reasoning.lower():
+            return "general_assistant"
         return state.destination
 
     builder.add_conditional_edges(
