@@ -43,7 +43,7 @@ class Config:
     XAI_API_KEY = os.environ.get("XAI_API_KEY")
 
     # Default model settings
-    DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-4-turbo-preview")
+    DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-4o")
     DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", 0))
     DEFAULT_PROVIDER = os.environ.get("AI_PROVIDER", "openai").lower()
 
@@ -56,13 +56,13 @@ class Config:
             "max_tokens": 4000,
         },
         "openai": {
-            "model_name": "gpt-4-turbo-2024-04-09",  # Latest GA model
+            "model_name": "gpt-4o",  # Latest GA model
             "temperature": 0.0,
             "top_p": 0.1,
             "max_tokens": 4000,
         },
         "grok": {
-            "model_name": "gpt-4-turbo-2024-04-09",  # Fallback to latest OpenAI model
+            "model_name": "gpt-4o",  # Fallback to latest OpenAI model
             "temperature": 0.0,
             "top_p": 0.1,
             "max_tokens": 4000,
@@ -132,13 +132,19 @@ def get_model_instance(provider: str, **kwargs):
             api_key=Config.get_api_key("anthropic"),
             **config.model_dump()
         )
-    elif provider in ["openai", "grok"]:
+    elif provider in ["openai"]:
         return ChatOpenAI(
             api_key=Config.get_api_key("openai"),
             **config.model_dump()
         )
+    elif provider in ["grok"]:
+        return ChatOpenAI(
+            api_key=Config.get_api_key("grok"),
+            **config.model_dump()
+        )
     else:
         raise ValueError(f"Unsupported provider: {provider}")
+
 
 
 def get_llm(configurable: dict = {}):
