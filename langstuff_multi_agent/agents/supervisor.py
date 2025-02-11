@@ -78,8 +78,9 @@ def route_query(state: RouterInput):
     - Analyst: Data analysis requests
     - Researcher: Fact-finding, web research
     - Project Manager: Task planning
-    - Life/Professional Coach: Personal/career advice
-    - General Assistant: Everything else"""
+    - Life Coach: Personal life strategies and advice
+    - Professional Coach: Professional career strategies and advice
+    - General Assistant: General purpose assistant for generic requests"""
 
     structured_llm = llm.with_structured_output(RouteDecision)
 

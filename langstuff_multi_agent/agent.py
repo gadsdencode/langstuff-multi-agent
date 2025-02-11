@@ -15,7 +15,7 @@ from langstuff_multi_agent.agents.context_manager import context_manager_graph
 from langstuff_multi_agent.agents.project_manager import project_manager_graph
 from langstuff_multi_agent.agents.professional_coach import professional_coach_graph
 from langstuff_multi_agent.agents.life_coach import life_coach_graph
-from langstuff_multi_agent.agents.coder import coder_workflow as coder_graph
+from langstuff_multi_agent.agents.coder import coder_graph
 from langstuff_multi_agent.agents.analyst import analyst_graph
 from langstuff_multi_agent.agents.researcher import researcher_graph
 from langstuff_multi_agent.agents.general_assistant import general_assistant_graph
