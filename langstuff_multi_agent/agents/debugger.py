@@ -63,4 +63,6 @@ debugger_workflow.add_conditional_edges(
 
 debugger_workflow.add_edge("tools", "analyze_code")
 
-__all__ = ["debugger_workflow"]
+debugger_graph = debugger_workflow.compile()
+
+__all__ = ["debugger_graph"]
