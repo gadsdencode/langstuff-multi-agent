@@ -54,19 +54,19 @@ class Config:
     # Model configurations
     MODEL_CONFIGS = {
         "anthropic": {
-            "model_name": "claude-3-opus-20240229",
+            "model_name": "claude-3-5-sonnet-20240620",
             "temperature": 0.0,
             "top_p": 0.1,
             "max_tokens": 4000,
         },
         "openai": {
-            "model_name": "gpt-4o",  # Latest GA model
+            "model_name": "gpt-4o",  # Preferred openai model
             "temperature": 0.0,
             "top_p": 0.1,
             "max_tokens": 4000,
         },
         "grok": {
-            "model_name": "gpt-4o",  # Fallback to latest OpenAI model
+            "model_name": "grok-2-1212",  # Fallback to latest Grok model - this model name is accurate
             "temperature": 0.0,
             "top_p": 0.1,
             "max_tokens": 4000,
