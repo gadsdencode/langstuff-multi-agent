@@ -38,17 +38,17 @@ def has_tool_calls(message: Dict[str, Any]) -> bool:
     """
     if not isinstance(message, dict):
         return False
-    
+
     # Check for tool_calls in the message
     tool_calls = message.get("tool_calls", [])
     if tool_calls and isinstance(tool_calls, list):
         return True
-    
+
     # Check for function_call in the message (older format)
     function_call = message.get("function_call")
     if function_call and isinstance(function_call, dict):
         return True
-    
+
     return False
 
 
