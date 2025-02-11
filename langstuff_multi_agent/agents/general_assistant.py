@@ -46,21 +46,38 @@ def assist(state, config):
     }
 
 
-def process_tool_results(state):
+def process_tool_results(state, config):
     """Processes tool outputs and formats FINAL user response"""
-    last_message = state.messages[-1]
+    last_message = state["messages"][-1]
+    tool_outputs = []
 
     if tool_calls := getattr(last_message, 'tool_calls', None):
-        tool_outputs = [tc["output"] for tc in tool_calls if "output" in tc]
+        for tc in tool_calls:
+            try:
+                # Execute tool and capture output
+                output = f"Tool {tc['name']} result: {tc['output']}"
+                tool_outputs.append({
+                    "tool_call_id": tc["id"],
+                    "output": output
+                })
+            except Exception as e:
+                tool_outputs.append({
+                    "tool_call_id": tc["id"],
+                    "error": f"Tool execution failed: {str(e)}"
+                })
 
-        # Generate FINAL response with tool data
-        return {"messages": [
-            get_llm().invoke([
-                {"role": "user", "content": state.messages[0].content},
-                {"role": "assistant", "content": f"Tool outputs: {tool_outputs}"},
-                {"role": "system", "content": "Formulate final answer using these results"}
-            ])
-        ]}
+        # Submit tool outputs and get final response
+        return {
+            "messages": state["messages"] + [
+                {
+                    "role": "tool",
+                    "content": "\n".join([to["output"] for to in tool_outputs]),
+                    "tool_call_id": to["tool_call_id"]
+                } for to in tool_outputs
+            ]
+        }
+
+    # If no tool calls, return original state
     return state
 
 
@@ -77,7 +94,7 @@ general_assistant_graph.add_conditional_edges(
 )
 
 general_assistant_graph.add_edge("tools", "process_results")
-general_assistant_graph.add_edge("process_results", END)
+general_assistant_graph.add_edge("process_results", "assist")
 
 general_assistant_graph = general_assistant_graph.compile()
 

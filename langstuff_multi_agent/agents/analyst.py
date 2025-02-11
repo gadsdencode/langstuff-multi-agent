@@ -34,26 +34,34 @@ def analyze_data(state):
     return {"messages": messages + [response]}
 
 
-def process_tool_results(state):
+def process_tool_results(state, config):
     """Processes tool outputs and formats FINAL user response"""
-    last_message = state.messages[-1]
-    
+    last_message = state["messages"][-1]
+    tool_outputs = []
+
     if tool_calls := getattr(last_message, 'tool_calls', None):
-        outputs = [tc["output"] for tc in tool_calls if "output" in tc]
-        
-        # Generate FINAL response with tool data
-        prompt = [
-            {"role": "user", "content": state.messages[0].content},
-            {"role": "assistant", "content": f"Tool outputs: {outputs}"},
-            {
-                "role": "system", 
-                "content": (
-                    "Formulate final answer using these results. "
-                    "Focus on data analysis insights and calculations."
-                )
-            }
-        ]
-        return {"messages": [get_llm().invoke(prompt)]}
+        for tc in tool_calls:
+            try:
+                output = f"Tool {tc['name']} result: {tc['output']}"
+                tool_outputs.append({
+                    "tool_call_id": tc["id"],
+                    "output": output
+                })
+            except Exception as e:
+                tool_outputs.append({
+                    "tool_call_id": tc["id"],
+                    "error": f"Tool execution failed: {str(e)}"
+                })
+
+        return {
+            "messages": state["messages"] + [
+                {
+                    "role": "tool",
+                    "content": to["output"],
+                    "tool_call_id": to["tool_call_id"]
+                } for to in tool_outputs
+            ]
+        }
     return state
 
 
@@ -71,7 +79,7 @@ analyst_graph.add_conditional_edges(
 )
 
 analyst_graph.add_edge("tools", "process_results")
-analyst_graph.add_edge("process_results", END)
+analyst_graph.add_edge("process_results", "analyze_data")
 
 analyst_graph = analyst_graph.compile()
 

@@ -56,23 +56,30 @@ def manage_context(state, config):
 def process_tool_results(state, config):
     """Process tool outputs and generate final response."""
     llm = get_llm(config.get("configurable", {}))
-    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+    tool_outputs = []
     
+    for msg in state["messages"]:
+        if tool_calls := getattr(msg, "tool_calls", None):
+            for tc in tool_calls:
+                try:
+                    output = f"Tool {tc['name']} result: {tc['output']}"
+                    tool_outputs.append({
+                        "tool_call_id": tc["id"],
+                        "output": output
+                    })
+                except Exception as e:
+                    tool_outputs.append({
+                        "tool_call_id": tc["id"],
+                        "error": f"Tool execution failed: {str(e)}"
+                    })
+
     return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [{
-                    "role": "system",
-                    "content": (
-                        "Process the tool outputs and provide a final response.\n\n"
-                        f"Tool outputs: {tool_outputs}\n\n"
-                        "Instructions:\n"
-                        "1. Review the tool outputs in context of conversation history.\n"
-                        "2. Summarize key points and context updates.\n"
-                        "3. Ensure continuity in the conversation flow."
-                    )
-                }]
-            )
+        "messages": state["messages"] + [
+            {
+                "role": "tool",
+                "content": to["output"],
+                "tool_call_id": to["tool_call_id"]
+            } for to in tool_outputs
         ]
     }
 
@@ -93,7 +100,7 @@ context_manager_workflow.add_conditional_edges(
     {"tools": "tools", END: END}
 )
 context_manager_workflow.add_edge("tools", "process_results")
-context_manager_workflow.add_edge("process_results", END)
+context_manager_workflow.add_edge("process_results", "manage_context")
 
 # 5. Compile ONCE at the end
 context_manager_graph = context_manager_workflow.compile()
