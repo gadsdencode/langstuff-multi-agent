@@ -10,15 +10,15 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 # Import individual workflows.
-from langstuff_multi_agent.agents.debugger import debugger_workflow
-from langstuff_multi_agent.agents.context_manager import context_manager_workflow
-from langstuff_multi_agent.agents.project_manager import project_manager_workflow
-from langstuff_multi_agent.agents.professional_coach import professional_coach_workflow
-from langstuff_multi_agent.agents.life_coach import life_coach_workflow
-from langstuff_multi_agent.agents.coder import coder_workflow
-from langstuff_multi_agent.agents.analyst import analyst_workflow
-from langstuff_multi_agent.agents.researcher import researcher_workflow
-from langstuff_multi_agent.agents.general_assistant import general_assistant_workflow
+from langstuff_multi_agent.agents.debugger import debugger_graph
+from langstuff_multi_agent.agents.context_manager import context_manager_graph
+from langstuff_multi_agent.agents.project_manager import project_manager_graph
+from langstuff_multi_agent.agents.professional_coach import professional_coach_graph
+from langstuff_multi_agent.agents.life_coach import life_coach_graph
+from langstuff_multi_agent.agents.coder import coder_graph
+from langstuff_multi_agent.agents.analyst import analyst_graph
+from langstuff_multi_agent.agents.researcher import researcher_graph
+from langstuff_multi_agent.agents.general_assistant import general_assistant_graph
 
 
 class RouterInput(BaseModel):
@@ -67,41 +67,56 @@ def route_query(state: RouterInput):
 
 
 # Create and compile the supervisor workflow
-builder = StateGraph(RouterInput)
+def create_supervisor_workflow():
+    builder = StateGraph(RouterInput)
 
-# Define nodes
-builder.add_node("route_query", route_query)
-builder.add_node("debugger", debugger_workflow)
-builder.add_node("context_manager", context_manager_workflow)
-builder.add_node("project_manager", project_manager_workflow)
-builder.add_node("professional_coach", professional_coach_workflow)
-builder.add_node("life_coach", life_coach_workflow)
-builder.add_node("coder", coder_workflow)
-builder.add_node("analyst", analyst_workflow)
-builder.add_node("researcher", researcher_workflow)
-builder.add_node("general_assistant", general_assistant_workflow)
+    # Compile subgraphs first
+    debugger_chain = debugger_graph.compile()
+    context_manager_chain = context_manager_graph.compile()
+    project_manager_chain = project_manager_graph.compile()
+    professional_coach_chain = professional_coach_graph.compile()
+    life_coach_chain = life_coach_graph.compile()
+    coder_chain = coder_graph.compile()
+    analyst_chain = analyst_graph.compile()
+    researcher_chain = researcher_graph.compile()
+    general_assistant_chain = general_assistant_graph.compile()
 
-# Conditional edges
-def decide_routes(state: RouteDecision):
-    return state.destination
+    # Define nodes
+    builder.add_node("route_query", route_query)
+    builder.add_node("debugger", debugger_chain)
+    builder.add_node("context_manager", context_manager_chain)
+    builder.add_node("project_manager", project_manager_chain)
+    builder.add_node("professional_coach", professional_coach_chain)
+    builder.add_node("life_coach", life_coach_chain)
+    builder.add_node("coder", coder_chain)
+    builder.add_node("analyst", analyst_chain)
+    builder.add_node("researcher", researcher_chain)
+    builder.add_node("general_assistant", general_assistant_chain)
 
-builder.add_conditional_edges(
-    "route_query",
-    decide_routes,
-    {
-        "debugger": "debugger",
-        "context_manager": "context_manager",
-        "project_manager": "project_manager",
-        "professional_coach": "professional_coach",
-        "life_coach": "life_coach",
-        "coder": "coder",
-        "analyst": "analyst",
-        "researcher": "researcher",
-        "general_assistant": "general_assistant"
-    }
-)
+    # Conditional edges
+    def decide_routes(state: RouteDecision):
+        return state.destination
 
-builder.set_entry_point("route_query")
-supervisor_workflow = builder.compile()
+    builder.add_conditional_edges(
+        "route_query",
+        decide_routes,
+        {
+            "debugger": "debugger",
+            "context_manager": "context_manager",
+            "project_manager": "project_manager",
+            "professional_coach": "professional_coach",
+            "life_coach": "life_coach",
+            "coder": "coder",
+            "analyst": "analyst",
+            "researcher": "researcher",
+            "general_assistant": "general_assistant"
+        }
+    )
+
+    builder.set_entry_point("route_query")
+    return builder.compile()
+
+
+supervisor_workflow = create_supervisor_workflow()
 
 __all__ = ["supervisor_workflow"]
