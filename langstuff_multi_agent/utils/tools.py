@@ -23,6 +23,33 @@ import sqlite3
 import io
 import contextlib
 from langchain_core.tools import tool
+from typing import Dict, Any, Optional, List
+
+
+def has_tool_calls(message: Dict[str, Any]) -> bool:
+    """
+    Check if a message contains tool calls.
+
+    Args:
+        message: A dictionary containing message data that might have tool calls
+
+    Returns:
+        bool: True if the message contains tool calls, False otherwise
+    """
+    if not isinstance(message, dict):
+        return False
+    
+    # Check for tool_calls in the message
+    tool_calls = message.get("tool_calls", [])
+    if tool_calls and isinstance(tool_calls, list):
+        return True
+    
+    # Check for function_call in the message (older format)
+    function_call = message.get("function_call")
+    if function_call and isinstance(function_call, dict):
+        return True
+    
+    return False
 
 
 # ---------------------------
