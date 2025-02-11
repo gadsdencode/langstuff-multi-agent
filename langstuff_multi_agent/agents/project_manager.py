@@ -97,7 +97,7 @@ project_manager_graph.add_conditional_edges(
 )
 
 project_manager_graph.add_edge("tools", "process_results")
-project_manager_graph.add_edge("process_results", "assist")
+project_manager_graph.add_edge("process_results", "manage")
 
 # Set entry point AFTER all nodes exist
 project_manager_graph.set_entry_point("planning")
