@@ -9,7 +9,7 @@ and coordinating tasks using various tools.
 from langgraph.graph import END, START, StateGraph
 from typing import TypedDict, Dict, Any
 
-from langstuff_multi_agent.utils.tools import get_tool_node
+from langstuff_multi_agent.utils.tools import get_tool_node, search_web, python_repl
 from langstuff_multi_agent.config import get_llm
 from langstuff_multi_agent.utils.tools import has_tool_calls
 
@@ -68,22 +68,29 @@ def execution_node(state: ProjectState) -> dict:
 # Correct initialization pattern from @Web examples
 project_manager_graph = StateGraph(ProjectState)  # Pass state schema class
 
-# Add nodes and edges as needed
+# Add ALL required nodes first
 project_manager_graph.add_node("planning", planning_node)
 project_manager_graph.add_node("execution", execution_node)
+project_manager_graph.add_node("manage", manage)
+project_manager_graph.add_node("tools", get_tool_node([search_web, python_repl]))
+project_manager_graph.add_node("process_results", process_tool_results)
+
+# Then define edges
 project_manager_graph.add_edge("planning", "execution")
+project_manager_graph.add_edge("execution", "manage")
 
-# Set entry point
-project_manager_graph.set_entry_point("planning")
-
+# Conditional edges must point to REGISTERED nodes
 project_manager_graph.add_conditional_edges(
     "manage",
-    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else END,
     {"tools": "tools", "END": END}
 )
 
 project_manager_graph.add_edge("tools", "process_results")
 project_manager_graph.add_edge("process_results", END)
+
+# Set entry point AFTER all nodes exist
+project_manager_graph.set_entry_point("planning")
 
 project_manager_graph = project_manager_graph.compile()
 
