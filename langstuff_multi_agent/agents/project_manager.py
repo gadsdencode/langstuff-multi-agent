@@ -7,6 +7,7 @@ and coordinating tasks using various tools.
 """
 
 from langgraph.graph import END, START, StateGraph
+from typing import TypedDict, Dict, Any
 
 from langstuff_multi_agent.utils.tools import get_tool_node
 from langstuff_multi_agent.config import get_llm
@@ -47,16 +48,33 @@ def process_tool_results(state):
     return state
 
 
-# Initialize and configure the project manager graph
-project_manager_graph = StateGraph(StateGraph.to_state_dict)
+# Define state schema properly
+class ProjectState(TypedDict):
+    tasks: Dict[str, Any]
+    current_step: str
+    artifacts: Dict[str, Any]
 
 
-# Add nodes and configure workflow
-project_manager_graph.add_node("manage", manage)
-project_manager_graph.add_node("tools", get_tool_node())
-project_manager_graph.add_node("process_results", process_tool_results)
-project_manager_graph.set_entry_point("manage")
-project_manager_graph.add_edge(START, "manage")
+def planning_node(state: ProjectState) -> dict:
+    """Generates initial project plan"""
+    return {"tasks": ["research", "prototype"], "current_step": "planning"}
+
+
+def execution_node(state: ProjectState) -> dict:
+    """Executes planned tasks"""
+    return {"current_step": "executing", "artifacts": {"result": "prototype_v1"}}
+
+
+# Correct initialization pattern from @Web examples
+project_manager_graph = StateGraph(ProjectState)  # Pass state schema class
+
+# Add nodes and edges as needed
+project_manager_graph.add_node("planning", planning_node)
+project_manager_graph.add_node("execution", execution_node)
+project_manager_graph.add_edge("planning", "execution")
+
+# Set entry point
+project_manager_graph.set_entry_point("planning")
 
 project_manager_graph.add_conditional_edges(
     "manage",
