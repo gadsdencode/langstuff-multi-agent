@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field
 import re
 import uuid
 from langchain_community.tools import tool
-from langchain_core.tools import BaseTool, ToolCall
+from langchain_core.messages import ToolCall
+from langchain_core.tools import BaseTool
 from langchain.schema import Command
 from typing_extensions import Annotated
 from langchain_core.tools import InjectedToolCallId
