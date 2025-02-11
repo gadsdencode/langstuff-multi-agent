@@ -37,6 +37,7 @@ AVAILABLE_AGENTS = [
     'general_assistant'
 ]
 
+
 def log_agent_failure(agent_name, query):
     """Logs agent failures for better debugging"""
     logger.error(f"Agent '{agent_name}' failed to process query: {query}")
