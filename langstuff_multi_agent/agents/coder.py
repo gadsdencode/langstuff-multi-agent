@@ -8,14 +8,14 @@ and optimization using various development tools.
 
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, python_repl, read_file, write_file, has_tool_calls
+from langstuff_multi_agent.utils.tools import search_web, python_repl, read_file, write_file, calc_tool, has_tool_calls
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-coder_workflow = StateGraph(MessagesState, ConfigSchema)
+coder_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define tools for coding tasks.
-tools = [search_web, python_repl, read_file, write_file]
+tools = [search_web, python_repl, read_file, write_file, calc_tool]
 tool_node = ToolNode(tools)
 
 
@@ -49,12 +49,12 @@ def code(state, config):
     }
 
 
-coder_workflow.add_node("code", code)
-coder_workflow.add_node("tools", tool_node)
+coder_graph.add_node("code", code)
+coder_graph.add_node("tools", tool_node)
+coder_graph.set_entry_point("code")
+coder_graph.add_edge(START, "code")
 
-coder_workflow.add_edge(START, "code")
-
-coder_workflow.add_conditional_edges(
+coder_graph.add_conditional_edges(
     "code",
     lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
     {
@@ -63,6 +63,8 @@ coder_workflow.add_conditional_edges(
     }
 )
 
-coder_workflow.add_edge("tools", "code")
+coder_graph.add_edge("tools", "code")
 
-__all__ = ["coder_workflow"]
+coder_graph = coder_graph.compile()
+
+__all__ = ["coder_graph"]

@@ -52,17 +52,22 @@ def manage_context(state, config):
     }
 
 
-context_manager_workflow.add_node("manage_context", manage_context)
-context_manager_workflow.add_node("tools", tool_node)
+context_manager_graph = context_manager_workflow.compile()
 
-context_manager_workflow.add_edge(START, "manage_context")
+context_manager_graph.add_node("manage_context", manage_context)
+context_manager_graph.set_entry_point("manage_context")
+context_manager_graph.add_node("tools", tool_node)
 
-context_manager_workflow.add_conditional_edges(
+context_manager_graph.add_edge(START, "manage_context")
+
+context_manager_graph.add_conditional_edges(
     "manage_context",
     lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
     {"tools": "tools", "END": END}
 )
 
-context_manager_workflow.add_edge("tools", "manage_context")
+context_manager_graph.add_edge("tools", "manage_context")
 
-__all__ = ["context_manager_workflow"]
+context_manager_graph = context_manager_graph.compile()
+
+__all__ = ["context_manager_graph"]

@@ -12,7 +12,7 @@ from langstuff_multi_agent.utils.tools import search_web, get_current_weather, c
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-life_coach_workflow = StateGraph(MessagesState, ConfigSchema)
+life_coach_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define tools for life coaching
 tools = [search_web, get_current_weather, calendar_tool]
@@ -48,17 +48,19 @@ def life_coach(state, config):
     }
 
 
-life_coach_workflow.add_node("life_coach", life_coach)
-life_coach_workflow.add_node("tools", tool_node)
+life_coach_graph.add_node("life_coach", life_coach)
+life_coach_graph.add_node("tools", tool_node)
+life_coach_graph.set_entry_point("life_coach")
+life_coach_graph.add_edge(START, "life_coach")
 
-life_coach_workflow.add_edge(START, "life_coach")
-
-life_coach_workflow.add_conditional_edges(
+life_coach_graph.add_conditional_edges(
     "life_coach",
     lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
     {"tools": "tools", "END": END}
 )
 
-life_coach_workflow.add_edge("tools", "life_coach")
+life_coach_graph.add_edge("tools", "life_coach")
 
-__all__ = ["life_coach_workflow"]
+life_coach_graph = life_coach_graph.compile()
+
+__all__ = ["life_coach_graph"]

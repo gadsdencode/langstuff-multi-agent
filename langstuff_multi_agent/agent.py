@@ -32,7 +32,7 @@ graph = supervisor_workflow
 
 # Export all graphs required by langgraph.json
 __all__ = [
-    "graph",  # Main supervisor graph
+    "supervisor_workflow",  # Main supervisor graph
     "debugger_graph",
     "context_manager_graph",
     "project_manager_graph",

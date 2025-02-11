@@ -12,7 +12,7 @@ from langstuff_multi_agent.utils.tools import search_web, python_repl, calc_tool
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-analyst_workflow = StateGraph(MessagesState, ConfigSchema)
+analyst_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define tools for analysis tasks
 tools = [search_web, python_repl, calc_tool]
@@ -47,17 +47,19 @@ def analyze_data(state, config):
     }
 
 
-analyst_workflow.add_node("analyze_data", analyze_data)
-analyst_workflow.add_node("tools", tool_node)
+analyst_graph.add_node("analyze_data", analyze_data)
+analyst_graph.add_node("tools", tool_node)
+analyst_graph.set_entry_point("analyze_data")
+analyst_graph.add_edge(START, "analyze_data")
 
-analyst_workflow.add_edge(START, "analyze_data")
-
-analyst_workflow.add_conditional_edges(
+analyst_graph.add_conditional_edges(
     "analyze_data",
     lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
     {"tools": "tools", "END": END}
 )
 
-analyst_workflow.add_edge("tools", "analyze_data")
+analyst_graph.add_edge("tools", "analyze_data")
 
-__all__ = ["analyst_workflow"]
+analyst_graph = analyst_graph.compile()
+
+__all__ = ["analyst_graph"]

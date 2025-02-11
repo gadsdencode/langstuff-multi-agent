@@ -12,7 +12,7 @@ from langstuff_multi_agent.utils.tools import search_web, job_search_tool, has_t
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-professional_coach_workflow = StateGraph(MessagesState, ConfigSchema)
+professional_coach_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define the tools for professional coaching
 tools = [search_web, job_search_tool]
@@ -47,17 +47,19 @@ def coach(state, config):
     }
 
 
-professional_coach_workflow.add_node("coach", coach)
-professional_coach_workflow.add_node("tools", tool_node)
+professional_coach_graph.add_node("coach", coach)
+professional_coach_graph.add_node("tools", tool_node)
+professional_coach_graph.set_entry_point("coach")
+professional_coach_graph.add_edge(START, "coach")
 
-professional_coach_workflow.add_edge(START, "coach")
-
-professional_coach_workflow.add_conditional_edges(
+professional_coach_graph.add_conditional_edges(
     "coach",
     lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
     {"tools": "tools", "END": END}
 )
 
-professional_coach_workflow.add_edge("tools", "coach")
+professional_coach_graph.add_edge("tools", "coach")
 
-__all__ = ["professional_coach_workflow"]
+professional_coach_graph = professional_coach_graph.compile()
+
+__all__ = ["professional_coach_graph"]

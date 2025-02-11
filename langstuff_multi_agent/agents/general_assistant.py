@@ -12,7 +12,7 @@ from langstuff_multi_agent.utils.tools import search_web, get_current_weather, h
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-general_assistant_workflow = StateGraph(MessagesState, ConfigSchema)
+general_assistant_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define general assistant tools
 tools = [search_web, get_current_weather]
@@ -46,17 +46,19 @@ def assist(state, config):
     }
 
 
-general_assistant_workflow.add_node("assist", assist)
-general_assistant_workflow.add_node("tools", tool_node)
+general_assistant_graph.add_node("assist", assist)
+general_assistant_graph.add_node("tools", tool_node)
+general_assistant_graph.set_entry_point("assist")
+general_assistant_graph.add_edge(START, "assist")
 
-general_assistant_workflow.add_edge(START, "assist")
-
-general_assistant_workflow.add_conditional_edges(
+general_assistant_graph.add_conditional_edges(
     "assist",
     lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
     {"tools": "tools", "END": END}
 )
 
-general_assistant_workflow.add_edge("tools", "assist")
+general_assistant_graph.add_edge("tools", "assist")
 
-__all__ = ["general_assistant_workflow"]
+general_assistant_graph = general_assistant_graph.compile()
+
+__all__ = ["general_assistant_graph"]

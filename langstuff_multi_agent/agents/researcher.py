@@ -12,7 +12,7 @@ from langstuff_multi_agent.utils.tools import search_web, news_tool, has_tool_ca
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-researcher_workflow = StateGraph(MessagesState, ConfigSchema)
+researcher_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define research tools
 tools = [search_web, news_tool]
@@ -46,17 +46,19 @@ def research(state, config):
     }
 
 
-researcher_workflow.add_node("research", research)
-researcher_workflow.add_node("tools", tool_node)
+researcher_graph.add_node("research", research)
+researcher_graph.add_node("tools", tool_node)
+researcher_graph.set_entry_point("research")
+researcher_graph.add_edge(START, "research")
 
-researcher_workflow.add_edge(START, "research")
-
-researcher_workflow.add_conditional_edges(
+researcher_graph.add_conditional_edges(
     "research",
     lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
     {"tools": "tools", "END": END}
 )
 
-researcher_workflow.add_edge("tools", "research")
+researcher_graph.add_edge("tools", "research")
 
-__all__ = ["researcher_workflow"]
+researcher_graph = researcher_graph.compile()
+
+__all__ = ["researcher_graph"]

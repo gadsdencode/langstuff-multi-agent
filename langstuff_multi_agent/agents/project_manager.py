@@ -12,7 +12,7 @@ from langstuff_multi_agent.utils.tools import search_web, calendar_tool, task_tr
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-project_manager_workflow = StateGraph(MessagesState, ConfigSchema)
+project_manager_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define project management tools
 tools = [search_web, calendar_tool, task_tracker_tool]
@@ -48,17 +48,19 @@ def manage_project(state, config):
     }
 
 
-project_manager_workflow.add_node("manage_project", manage_project)
-project_manager_workflow.add_node("tools", tool_node)
+project_manager_graph.add_node("manage_project", manage_project)
+project_manager_graph.add_node("tools", tool_node)
+project_manager_graph.set_entry_point("manage_project")
+project_manager_graph.add_edge(START, "manage_project")
 
-project_manager_workflow.add_edge(START, "manage_project")
-
-project_manager_workflow.add_conditional_edges(
+project_manager_graph.add_conditional_edges(
     "manage_project",
     lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
     {"tools": "tools", "END": END}
 )
 
-project_manager_workflow.add_edge("tools", "manage_project")
+project_manager_graph.add_edge("tools", "manage_project")
 
-__all__ = ["project_manager_workflow"]
+project_manager_graph = project_manager_graph.compile()
+
+__all__ = ["project_manager_graph"]
