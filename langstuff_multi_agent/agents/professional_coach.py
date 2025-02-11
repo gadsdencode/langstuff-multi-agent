@@ -47,8 +47,33 @@ def coach(state, config):
     }
 
 
+def process_tool_results(state, config):
+    """Process tool outputs and generate final response."""
+    llm = get_llm(config.get("configurable", {}))
+    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+    
+    return {
+        "messages": [
+            llm.invoke(
+                state["messages"] + [{
+                    "role": "system",
+                    "content": (
+                        "Process the tool outputs and provide a final response.\n\n"
+                        f"Tool outputs: {tool_outputs}\n\n"
+                        "Instructions:\n"
+                        "1. Review the tool outputs in context of the career query.\n"
+                        "2. Provide actionable career advice and strategies.\n"
+                        "3. Include relevant job opportunities and resources."
+                    )
+                }]
+            )
+        ]
+    }
+
+
 professional_coach_graph.add_node("coach", coach)
 professional_coach_graph.add_node("tools", tool_node)
+professional_coach_graph.add_node("process_results", process_tool_results)
 professional_coach_graph.set_entry_point("coach")
 professional_coach_graph.add_edge(START, "coach")
 
@@ -58,7 +83,8 @@ professional_coach_graph.add_conditional_edges(
     {"tools": "tools", "END": END}
 )
 
-professional_coach_graph.add_edge("tools", "coach")
+professional_coach_graph.add_edge("tools", "process_results")
+professional_coach_graph.add_edge("process_results", END)
 
 professional_coach_graph = professional_coach_graph.compile()
 

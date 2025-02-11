@@ -46,8 +46,27 @@ def assist(state, config):
     }
 
 
+def process_tool_results(state):
+    """Processes tool outputs and formats final response"""
+    last_message = state.messages[-1]
+
+    if tool_calls := getattr(last_message, 'tool_calls', None):
+        # Extract tool outputs
+        tool_outputs = [tc["output"] for tc in tool_calls if "output" in tc]
+
+        # Generate final response with context
+        return {"messages": [
+            get_llm().invoke(state.messages + [{
+                "role": "user",
+                "content": f"Tool outputs: {tool_outputs}\nFormulate final answer:"
+            }])
+        ]}
+    return state
+
+
 general_assistant_graph.add_node("assist", assist)
 general_assistant_graph.add_node("tools", tool_node)
+general_assistant_graph.add_node("process_results", process_tool_results)
 general_assistant_graph.set_entry_point("assist")
 general_assistant_graph.add_edge(START, "assist")
 
@@ -57,7 +76,8 @@ general_assistant_graph.add_conditional_edges(
     {"tools": "tools", "END": END}
 )
 
-general_assistant_graph.add_edge("tools", "assist")
+general_assistant_graph.add_edge("tools", "process_results")
+general_assistant_graph.add_edge("process_results", END)
 
 general_assistant_graph = general_assistant_graph.compile()
 

@@ -53,9 +53,34 @@ def manage_context(state, config):
     }
 
 
+def process_tool_results(state, config):
+    """Process tool outputs and generate final response."""
+    llm = get_llm(config.get("configurable", {}))
+    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+    
+    return {
+        "messages": [
+            llm.invoke(
+                state["messages"] + [{
+                    "role": "system",
+                    "content": (
+                        "Process the tool outputs and provide a final response.\n\n"
+                        f"Tool outputs: {tool_outputs}\n\n"
+                        "Instructions:\n"
+                        "1. Review the tool outputs in context of conversation history.\n"
+                        "2. Summarize key points and context updates.\n"
+                        "3. Ensure continuity in the conversation flow."
+                    )
+                }]
+            )
+        ]
+    }
+
+
 # 2. Add nodes BEFORE compiling
 context_manager_workflow.add_node("manage_context", manage_context)
 context_manager_workflow.add_node("tools", tool_node)
+context_manager_workflow.add_node("process_results", process_tool_results)
 
 # 3. Set entry point explicitly
 context_manager_workflow.set_entry_point("manage_context")
@@ -67,7 +92,8 @@ context_manager_workflow.add_conditional_edges(
     lambda state: "tools" if has_tool_calls(state.get("messages", [])) else END,
     {"tools": "tools", END: END}
 )
-context_manager_workflow.add_edge("tools", "manage_context")
+context_manager_workflow.add_edge("tools", "process_results")
+context_manager_workflow.add_edge("process_results", END)
 
 # 5. Compile ONCE at the end
 context_manager_graph = context_manager_workflow.compile()

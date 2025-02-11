@@ -49,8 +49,33 @@ def code(state, config):
     }
 
 
+def process_tool_results(state, config):
+    """Process tool outputs and generate final response."""
+    llm = get_llm(config.get("configurable", {}))
+    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+    
+    return {
+        "messages": [
+            llm.invoke(
+                state["messages"] + [{
+                    "role": "system",
+                    "content": (
+                        "Process the tool outputs and provide a final response.\n\n"
+                        f"Tool outputs: {tool_outputs}\n\n"
+                        "Instructions:\n"
+                        "1. Review the tool outputs in context of the coding request.\n"
+                        "2. Explain code changes and implementation details.\n"
+                        "3. Include any necessary testing or verification steps."
+                    )
+                }]
+            )
+        ]
+    }
+
+
 coder_graph.add_node("code", code)
 coder_graph.add_node("tools", tool_node)
+coder_graph.add_node("process_results", process_tool_results)
 coder_graph.set_entry_point("code")
 coder_graph.add_edge(START, "code")
 
@@ -64,6 +89,7 @@ coder_graph.add_conditional_edges(
 )
 
 coder_graph.add_edge("tools", "code")
+coder_graph.add_edge("process_results", END)
 
 coder_graph = coder_graph.compile()
 

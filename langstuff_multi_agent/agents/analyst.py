@@ -47,8 +47,33 @@ def analyze_data(state, config):
     }
 
 
+def process_tool_results(state, config):
+    """Process tool outputs and generate final response."""
+    llm = get_llm(config.get("configurable", {}))
+    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+    
+    return {
+        "messages": [
+            llm.invoke(
+                state["messages"] + [{
+                    "role": "system",
+                    "content": (
+                        "Process the tool outputs and provide a final response.\n\n"
+                        f"Tool outputs: {tool_outputs}\n\n"
+                        "Instructions:\n"
+                        "1. Review the tool outputs in context of the analysis request.\n"
+                        "2. Synthesize the data into clear, actionable insights.\n"
+                        "3. Present findings with appropriate visualizations or metrics."
+                    )
+                }]
+            )
+        ]
+    }
+
+
 analyst_graph.add_node("analyze_data", analyze_data)
 analyst_graph.add_node("tools", tool_node)
+analyst_graph.add_node("process_results", process_tool_results)
 analyst_graph.set_entry_point("analyze_data")
 analyst_graph.add_edge(START, "analyze_data")
 
@@ -59,6 +84,7 @@ analyst_graph.add_conditional_edges(
 )
 
 analyst_graph.add_edge("tools", "analyze_data")
+analyst_graph.add_edge("process_results", END)
 
 analyst_graph = analyst_graph.compile()
 

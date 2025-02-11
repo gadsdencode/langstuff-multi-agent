@@ -46,8 +46,33 @@ def research(state, config):
     }
 
 
+def process_tool_results(state, config):
+    """Process tool outputs and generate final response."""
+    llm = get_llm(config.get("configurable", {}))
+    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+    
+    return {
+        "messages": [
+            llm.invoke(
+                state["messages"] + [{
+                    "role": "system",
+                    "content": (
+                        "Process the tool outputs and provide a final response.\n\n"
+                        f"Tool outputs: {tool_outputs}\n\n"
+                        "Instructions:\n"
+                        "1. Analyze the tool outputs in context of the user's query.\n"
+                        "2. Synthesize the information into a clear, comprehensive response.\n"
+                        "3. Ensure all relevant information from tools is included."
+                    )
+                }]
+            )
+        ]
+    }
+
+
 researcher_graph.add_node("research", research)
 researcher_graph.add_node("tools", tool_node)
+researcher_graph.add_node("process_results", process_tool_results)
 researcher_graph.set_entry_point("research")
 researcher_graph.add_edge(START, "research")
 
@@ -58,6 +83,7 @@ researcher_graph.add_conditional_edges(
 )
 
 researcher_graph.add_edge("tools", "research")
+researcher_graph.add_edge("process_results", END)
 
 researcher_graph = researcher_graph.compile()
 

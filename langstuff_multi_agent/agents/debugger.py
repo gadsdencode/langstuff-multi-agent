@@ -50,8 +50,33 @@ def analyze_code(state, config):
     }
 
 
+def process_tool_results(state, config):
+    """Process tool outputs and generate final response."""
+    llm = get_llm(config.get("configurable", {}))
+    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+    
+    return {
+        "messages": [
+            llm.invoke(
+                state["messages"] + [{
+                    "role": "system",
+                    "content": (
+                        "Process the tool outputs and provide a final response.\n\n"
+                        f"Tool outputs: {tool_outputs}\n\n"
+                        "Instructions:\n"
+                        "1. Review the tool outputs in context of the debugging query.\n"
+                        "2. Explain the identified issues and solutions clearly.\n"
+                        "3. Include code fixes and verification steps."
+                    )
+                }]
+            )
+        ]
+    }
+
+
 debugger_workflow.add_node("analyze_code", analyze_code)
 debugger_workflow.add_node("tools", tool_node)
+debugger_workflow.add_node("process_results", process_tool_results)
 
 debugger_workflow.add_edge(START, "analyze_code")
 
@@ -61,7 +86,8 @@ debugger_workflow.add_conditional_edges(
     {"tools": "tools", "END": END}
 )
 
-debugger_workflow.add_edge("tools", "analyze_code")
+debugger_workflow.add_edge("tools", "process_results")
+debugger_workflow.add_edge("process_results", END)
 
 debugger_graph = debugger_workflow.compile()
 

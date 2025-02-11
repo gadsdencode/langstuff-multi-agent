@@ -48,8 +48,33 @@ def life_coach(state, config):
     }
 
 
+def process_tool_results(state, config):
+    """Process tool outputs and generate final response."""
+    llm = get_llm(config.get("configurable", {}))
+    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+    
+    return {
+        "messages": [
+            llm.invoke(
+                state["messages"] + [{
+                    "role": "system",
+                    "content": (
+                        "Process the tool outputs and provide a final response.\n\n"
+                        f"Tool outputs: {tool_outputs}\n\n"
+                        "Instructions:\n"
+                        "1. Review the tool outputs in context of the life advice query.\n"
+                        "2. Provide personalized guidance and actionable steps.\n"
+                        "3. Include relevant lifestyle tips and resources."
+                    )
+                }]
+            )
+        ]
+    }
+
+
 life_coach_graph.add_node("life_coach", life_coach)
 life_coach_graph.add_node("tools", tool_node)
+life_coach_graph.add_node("process_results", process_tool_results)
 life_coach_graph.set_entry_point("life_coach")
 life_coach_graph.add_edge(START, "life_coach")
 
@@ -60,6 +85,7 @@ life_coach_graph.add_conditional_edges(
 )
 
 life_coach_graph.add_edge("tools", "life_coach")
+life_coach_graph.add_edge("process_results", END)
 
 life_coach_graph = life_coach_graph.compile()
 

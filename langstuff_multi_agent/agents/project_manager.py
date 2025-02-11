@@ -48,8 +48,33 @@ def manage_project(state, config):
     }
 
 
+def process_tool_results(state, config):
+    """Process tool outputs and generate final response."""
+    llm = get_llm(config.get("configurable", {}))
+    tool_outputs = [tc["output"] for msg in state["messages"] for tc in getattr(msg, "tool_calls", [])]
+    
+    return {
+        "messages": [
+            llm.invoke(
+                state["messages"] + [{
+                    "role": "system",
+                    "content": (
+                        "Process the tool outputs and provide a final response.\n\n"
+                        f"Tool outputs: {tool_outputs}\n\n"
+                        "Instructions:\n"
+                        "1. Review the tool outputs in context of project management.\n"
+                        "2. Update project timelines and task assignments.\n"
+                        "3. Provide clear next steps and deadlines."
+                    )
+                }]
+            )
+        ]
+    }
+
+
 project_manager_graph.add_node("manage_project", manage_project)
 project_manager_graph.add_node("tools", tool_node)
+project_manager_graph.add_node("process_results", process_tool_results)
 project_manager_graph.set_entry_point("manage_project")
 project_manager_graph.add_edge(START, "manage_project")
 
@@ -60,6 +85,7 @@ project_manager_graph.add_conditional_edges(
 )
 
 project_manager_graph.add_edge("tools", "manage_project")
+project_manager_graph.add_edge("process_results", END)
 
 project_manager_graph = project_manager_graph.compile()
 
