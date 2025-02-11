@@ -66,44 +66,42 @@ def route_query(state: RouterInput):
     }], config={"system": system})
 
 
-# Supervisor workflow construction
-def create_supervisor_workflow():
-    builder = StateGraph(RouterInput)
+# Create and compile the supervisor workflow
+builder = StateGraph(RouterInput)
 
-    # Define nodes
-    builder.add_node("route_query", route_query)
-    builder.add_node("debugger", debugger_workflow)
-    builder.add_node("context_manager", context_manager_workflow)
-    builder.add_node("project_manager", project_manager_workflow)
-    builder.add_node("professional_coach", professional_coach_workflow)
-    builder.add_node("life_coach", life_coach_workflow)
-    builder.add_node("coder", coder_workflow)
-    builder.add_node("analyst", analyst_workflow)
-    builder.add_node("researcher", researcher_workflow)
-    builder.add_node("general_assistant", general_assistant_workflow)
+# Define nodes
+builder.add_node("route_query", route_query)
+builder.add_node("debugger", debugger_workflow)
+builder.add_node("context_manager", context_manager_workflow)
+builder.add_node("project_manager", project_manager_workflow)
+builder.add_node("professional_coach", professional_coach_workflow)
+builder.add_node("life_coach", life_coach_workflow)
+builder.add_node("coder", coder_workflow)
+builder.add_node("analyst", analyst_workflow)
+builder.add_node("researcher", researcher_workflow)
+builder.add_node("general_assistant", general_assistant_workflow)
 
-    # Conditional edges
-    def decide_routes(state: RouteDecision):
-        return state.destination
+# Conditional edges
+def decide_routes(state: RouteDecision):
+    return state.destination
 
-    builder.add_conditional_edges(
-        "route_query",
-        decide_routes,
-        {
-            "debugger": "debugger",
-            "context_manager": "context_manager",
-            "project_manager": "project_manager",
-            "professional_coach": "professional_coach",
-            "life_coach": "life_coach",
-            "coder": "coder",
-            "analyst": "analyst",
-            "researcher": "researcher",
-            "general_assistant": "general_assistant"
-        }
-    )
+builder.add_conditional_edges(
+    "route_query",
+    decide_routes,
+    {
+        "debugger": "debugger",
+        "context_manager": "context_manager",
+        "project_manager": "project_manager",
+        "professional_coach": "professional_coach",
+        "life_coach": "life_coach",
+        "coder": "coder",
+        "analyst": "analyst",
+        "researcher": "researcher",
+        "general_assistant": "general_assistant"
+    }
+)
 
-    builder.set_entry_point("route_query")
-    return builder.compile()
+builder.set_entry_point("route_query")
+supervisor_workflow = builder.compile()
 
-
-__all__ = ["create_supervisor_workflow"]
+__all__ = ["supervisor_workflow"]

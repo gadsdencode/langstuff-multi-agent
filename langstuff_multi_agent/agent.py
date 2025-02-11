@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 logger.info("Initializing primary supervisor workflow...")
 
-# Compile only the supervisor workflow as the entry point.
-graph = supervisor_workflow.compile()
+# Use the supervisor workflow as the main graph
+graph = supervisor_workflow
 
 # Export all graphs required by langgraph.json
 __all__ = [
