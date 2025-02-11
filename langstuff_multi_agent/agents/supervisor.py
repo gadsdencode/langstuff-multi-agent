@@ -3,7 +3,7 @@
 Supervisor Agent module for integrating and routing individual LangGraph agent workflows.
 """
 
-from langgraph.graph import StateGraph, Node
+from langgraph.graph import StateGraph
 from langchain_core.messages import HumanMessage
 from langstuff_multi_agent.config import get_llm
 from typing import Literal, Optional
