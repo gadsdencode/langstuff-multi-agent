@@ -8,8 +8,8 @@ and coordinating tasks using various tools.
 
 from langgraph.graph import END, START, StateGraph
 
-from langstuff_multi_agent.agents.tools import tool_node
-from langstuff_multi_agent.llm import get_llm
+from langstuff_multi_agent.utils.tools import tool_node
+from langstuff_multi_agent.config import get_llm
 from langstuff_multi_agent.utils import has_tool_calls
 
 
