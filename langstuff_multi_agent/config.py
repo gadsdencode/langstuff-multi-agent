@@ -123,9 +123,10 @@ def get_model_instance(provider: str, **kwargs):
 
     try:
         # Validate configuration against schema
+        config_data = {**Config.MODEL_CONFIGS[provider], **kwargs}
         config_obj = ModelConfig(
             provider=provider,
-            **{**Config.MODEL_CONFIGS[provider], **kwargs}
+            **config_data
         )
     except ValidationError as e:
         error_messages = [f"{err['loc'][0]}: {err['msg']}" for err in e.errors()]
@@ -133,23 +134,21 @@ def get_model_instance(provider: str, **kwargs):
             "Invalid model configuration:" + "\n" + "\n".join(error_messages)
         )
 
-    # Pop structured_output_method if provided, so it's not passed to the LLM constructor.
-    structured_output_method = kwargs.pop("structured_output_method", None)
-    if structured_output_method:
-        logging.info("Structured output method specified: %s", structured_output_method)
+    # Filter out provider before passing to LLM constructor
+    model_params = config_obj.model_dump(exclude={'provider'})
 
-    logging.info("Creating model instance for provider: %s with model: %s, temperature: %s, max_tokens: %s",
-                 provider, config_obj.model_name, config_obj.temperature, config_obj.max_tokens)
+    logging.info("Creating model instance for provider: %s with params: %s",
+                 provider, model_params)
 
     if provider == "anthropic":
         return ChatAnthropic(
             api_key=Config.get_api_key("anthropic"),
-            **config_obj.model_dump()
+            **model_params
         )
     elif provider in ["openai", "grok"]:
         return ChatOpenAI(
             api_key=Config.get_api_key(provider),
-            **config_obj.model_dump()
+            **model_params
         )
     else:
         raise ValueError(f"Unsupported provider: {provider}")
