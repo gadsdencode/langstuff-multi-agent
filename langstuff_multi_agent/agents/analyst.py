@@ -15,7 +15,7 @@ from langstuff_multi_agent.utils.tools import (
     has_tool_calls
 )
 from langstuff_multi_agent.config import get_llm
-from langchain.schema import Command
+from langchain_core.messages import ToolMessage
 
 analyst_graph = StateGraph(MessagesState)
 
@@ -43,9 +43,9 @@ def process_tool_results(state, config):
             for tc in tool_calls:
                 if tc['name'].startswith('transfer_to_'):
                     return {
-                        "messages": [Command(
+                        "messages": [ToolMessage(
                             goto=tc['name'].replace('transfer_to_', ''),
-                            graph=Command.PARENT
+                            graph=ToolMessage.PARENT
                         )]
                     }
 

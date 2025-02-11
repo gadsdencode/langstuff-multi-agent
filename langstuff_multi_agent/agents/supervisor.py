@@ -13,7 +13,7 @@ import uuid
 from langchain_community.tools import tool
 from langchain_core.messages import ToolCall
 from langchain_core.tools import BaseTool
-from langchain.schema import Command
+from langchain_core.messages import ToolMessage
 from typing_extensions import Annotated
 from langchain_core.tools import InjectedToolCallId
 
@@ -73,9 +73,9 @@ def create_handoff_tool(*, agent_name: str) -> BaseTool:
             name=tool_name,
             tool_call_id=tool_call_id,
         )
-        return Command(
+        return ToolMessage(
             goto=agent_name,
-            graph=Command.PARENT,
+            graph=ToolMessage.PARENT,
             update={"messages": [tool_message]},
         )
     return handoff_to_agent
@@ -166,9 +166,9 @@ def process_tool_results(state, config):
         if tool_calls := getattr(msg, "tool_calls", None):
             for tc in tool_calls:
                 if tc['name'].startswith('transfer_to_'):
-                    return {"messages": [Command(
+                    return {"messages": [ToolMessage(
                         goto=tc['name'].replace('transfer_to_', ''),
-                        graph=Command.PARENT
+                        graph=ToolMessage.PARENT
                     )]}
                 # Existing tool processing logic
                 try:
