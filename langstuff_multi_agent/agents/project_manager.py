@@ -8,7 +8,7 @@ and coordinating tasks using various tools.
 
 from langgraph.graph import END, START, StateGraph
 
-from langstuff_multi_agent.utils.tools import tool_node
+from langstuff_multi_agent.utils.tools import get_tool_node
 from langstuff_multi_agent.config import get_llm
 from langstuff_multi_agent.utils.tools import has_tool_calls
 
@@ -53,7 +53,7 @@ project_manager_graph = StateGraph(StateGraph.to_state_dict)
 
 # Add nodes and configure workflow
 project_manager_graph.add_node("manage", manage)
-project_manager_graph.add_node("tools", tool_node)
+project_manager_graph.add_node("tools", get_tool_node())
 project_manager_graph.add_node("process_results", process_tool_results)
 project_manager_graph.set_entry_point("manage")
 project_manager_graph.add_edge(START, "manage")
