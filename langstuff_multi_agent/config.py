@@ -134,8 +134,8 @@ def get_model_instance(provider: str, **kwargs):
             "Invalid model configuration:" + "\n" + "\n".join(error_messages)
         )
 
-    # Filter out provider before passing to LLM constructor
-    model_params = config_obj.model_dump(exclude={'provider'})
+    # Exclude structured_output_method from model params
+    model_params = config_obj.model_dump(exclude={'provider', 'structured_output_method'})
 
     logging.info("Creating model instance for provider: %s with params: %s",
                  provider, model_params)
