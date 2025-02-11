@@ -132,7 +132,7 @@ def get_model_instance(provider: str, **kwargs):
     except ValidationError as e:
         error_messages = [f"{err['loc'][0]}: {err['msg']}" for err in e.errors()]
         raise ValueError(
-            f"Invalid model configuration:\n{'\n'.join(error_messages)}"
+            "Invalid model configuration:" + "\n" + "\n".join(error_messages)
         )
 
     # Pop structured_output_method if provided, so it's not passed to the LLM constructor.
