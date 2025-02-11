@@ -19,6 +19,7 @@ from langstuff_multi_agent.agents.coder import coder_workflow as coder_graph
 from langstuff_multi_agent.agents.analyst import analyst_workflow as analyst_graph
 from langstuff_multi_agent.agents.researcher import researcher_workflow as researcher_graph
 from langstuff_multi_agent.agents.general_assistant import general_assistant_workflow as general_assistant_graph
+import threading
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,5 +43,24 @@ __all__ = [
     "researcher_graph",
     "general_assistant_graph"
 ]
+
+# Add monitoring after graph initialization
+available_agents = [  # Define available agents list
+    "debugger", "context_manager", "project_manager",
+    "professional_coach", "life_coach", "coder",
+    "analyst", "researcher", "general_assistant"
+]
+
+
+def monitor_agents():
+    """Prints agent statuses every 10 seconds"""
+    import time
+    while True:
+        print("Active agents:", ", ".join(available_agents))
+        time.sleep(10)
+
+
+# Start monitoring thread
+threading.Thread(target=monitor_agents, daemon=True).start()
 
 logger.info("Primary supervisor workflow successfully initialized.")

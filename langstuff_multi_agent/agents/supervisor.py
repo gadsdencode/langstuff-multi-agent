@@ -20,6 +20,27 @@ from langstuff_multi_agent.agents.analyst import analyst_graph
 from langstuff_multi_agent.agents.researcher import researcher_graph
 from langstuff_multi_agent.agents.general_assistant import general_assistant_graph
 
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Define valid agent destinations at the top of the file
+AVAILABLE_AGENTS = [
+    'debugger',
+    'context_manager',
+    'project_manager',
+    'professional_coach',
+    'life_coach',
+    'coder',
+    'analyst',
+    'researcher',
+    'general_assistant'
+]
+
+def log_agent_failure(agent_name, query):
+    """Logs agent failures for better debugging"""
+    logger.error(f"Agent '{agent_name}' failed to process query: {query}")
+
 
 class RouterInput(BaseModel):
     messages: list[HumanMessage] = Field(..., description="User messages to route")
@@ -47,7 +68,7 @@ class RouteDecision(BaseModel):
 
 
 def route_query(state: RouterInput):
-    """Classifies and routes user queries using structured LLM output"""
+    """Classifies and routes user queries using structured LLM output."""
     llm = get_llm({"structured_output_method": "json_mode"})
     system = """You are an expert router for a multi-agent system. Analyze the user's query 
     and route to ONE specialized agent. Consider these specialties:
@@ -60,10 +81,18 @@ def route_query(state: RouterInput):
     - General Assistant: Everything else"""
 
     structured_llm = llm.with_structured_output(RouteDecision)
-    return structured_llm.invoke([{
+
+    decision = structured_llm.invoke([{
         "role": "user",
         "content": f"Route this query: {state.messages[-1].content}"
     }], config={"system": system})
+
+    # Use the defined constant for validation
+    if decision.destination not in AVAILABLE_AGENTS:
+        log_agent_failure(decision.destination, state.messages[-1].content)
+        return RouteDecision(reasoning="Fallback due to failure", destination="general_assistant")
+    else:
+        return decision
 
 
 # Create and compile the supervisor workflow
@@ -95,6 +124,9 @@ def create_supervisor_workflow():
 
     # Conditional edges
     def decide_routes(state: RouteDecision):
+        """Handles routing decision and retries if necessary"""
+        if "error" in state.reasoning.lower():
+            return "general_assistant"  # Reroute errors to the general assistant
         return state.destination
 
     builder.add_conditional_edges(

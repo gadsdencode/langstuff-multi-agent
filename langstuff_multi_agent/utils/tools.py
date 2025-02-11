@@ -24,6 +24,7 @@ import io
 import contextlib
 from langchain_core.tools import tool
 from typing import Dict, Any, Optional, List
+from langstuff_multi_agent.config import get_llm
 
 
 def has_tool_calls(message: Dict[str, Any]) -> bool:
@@ -117,15 +118,35 @@ def python_repl(code: str) -> str:
             "max": max,
             "sum": sum,
         }
-        restricted_globals = {"__builtins__": safe_builtins}
+        restricted_globals = {"__safe_builtins__": safe_builtins}
         restricted_locals = {}
-        # Capture the output of the exec call.
         output = io.StringIO()
+
         with contextlib.redirect_stdout(output):
             exec(code, restricted_globals, restricted_locals)
+
         return output.getvalue()
+    except SyntaxError as e:
+        return f"Syntax error: {e}"
     except Exception as e:
-        return f"Error during code execution: {str(e)}"
+        return f"Execution error: {e}"
+
+
+def code(state, config):
+    """Enhanced Coder Agent with Fix Suggestions"""
+    llm = get_llm(config.get("configurable", {}))
+    code_snippet = state["messages"][-1]["content"]
+
+    result = python_repl(code_snippet)
+
+    if "error" in result.lower():
+        suggestion = llm.invoke([{
+            "role": "user",
+            "content": f"The following code produced an error:\n{code_snippet}\nSuggest a fix."
+        }])
+        return {"messages": [result, suggestion]}
+
+    return {"messages": [result]}
 
 
 # ---------------------------

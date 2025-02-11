@@ -5,7 +5,7 @@ Context Manager Agent module for tracking conversation context.
 This module provides a workflow for managing conversation history
 and maintaining context across interactions.
 """
-
+import json
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import search_web, read_file, write_file, has_tool_calls
@@ -19,32 +19,35 @@ tools = [search_web, read_file, write_file]
 tool_node = ToolNode(tools)
 
 
+def save_context(state):
+    """Saves conversation history to a file"""
+    with open("context.json", "w") as f:
+        json.dump(state["messages"], f)
+
+
+def load_context():
+    """Loads previous conversation history"""
+    try:
+        with open("context.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+
+
 def manage_context(state, config):
-    """Manage conversation context with configuration support."""
+    """Manages conversation context with persistent storage"""
+    previous_messages = load_context()
+    updated_messages = previous_messages + state["messages"]
+
+    save_context({"messages": updated_messages})  # Save merged history
+
     llm = get_llm(config.get("configurable", {}))
-    llm = llm.bind_tools(tools)
     return {
         "messages": [
-            llm.invoke(
-                state["messages"] + [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a Context Manager Agent. Your task is to track and manage conversation context.\n\n"
-                            "You have access to the following tools:\n"
-                            "- search_web: Search the web for general information and recent content.\n"
-                            "- read_file: Read the contents of a file.\n"
-                            "- write_file: Write content to a file.\n\n"
-                            "Instructions:\n"
-                            "1. Keep track of key information and topics discussed in the conversation.\n"
-                            "2. Summarize important points and decisions made.\n"
-                            "3. Use read_file and write_file to store and retrieve context information.\n"
-                            "4. If necessary, use search_web to gather additional context.\n"
-                            "5. Ensure that the conversation stays focused and relevant."
-                        ),
-                    }
-                ]
-            )
+            llm.invoke(updated_messages + [{
+                "role": "system",
+                "content": "Track and summarize conversation history."
+            }])
         ]
     }
 
