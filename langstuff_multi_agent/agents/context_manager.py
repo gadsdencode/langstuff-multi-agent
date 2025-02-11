@@ -8,9 +8,14 @@ and maintaining context across interactions.
 import json
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import search_web, read_file, write_file, has_tool_calls
-from langchain_anthropic import ChatAnthropic
+from langstuff_multi_agent.utils.tools import (
+    search_web,
+    read_file,
+    write_file,
+    has_tool_calls
+)
 from langstuff_multi_agent.config import ConfigSchema, get_llm
+from langchain.schema import Command
 
 # 1. Initialize workflow FIRST
 context_manager_workflow = StateGraph(MessagesState, ConfigSchema)
@@ -55,7 +60,18 @@ def manage_context(state, config):
 
 def process_tool_results(state, config):
     """Process tool outputs and generate final response."""
-    llm = get_llm(config.get("configurable", {}))
+    # Add handoff command detection
+    for msg in state["messages"]:
+        if tool_calls := getattr(msg, 'tool_calls', None):
+            for tc in tool_calls:
+                if tc['name'].startswith('transfer_to_'):
+                    return {
+                        "messages": [Command(
+                            goto=tc['name'].replace('transfer_to_', ''),
+                            graph=Command.PARENT
+                        )]
+                    }
+
     tool_outputs = []
     
     for msg in state["messages"]:
@@ -79,7 +95,8 @@ def process_tool_results(state, config):
                 "role": "tool",
                 "content": to["output"],
                 "tool_call_id": to["tool_call_id"]
-            } for to in tool_outputs
+            } 
+            for to in tool_outputs
         ]
     }
 

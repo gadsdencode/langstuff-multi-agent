@@ -20,15 +20,41 @@ from langstuff_multi_agent.agents.analyst import analyst_graph
 from langstuff_multi_agent.agents.researcher import researcher_graph
 from langstuff_multi_agent.agents.general_assistant import general_assistant_graph
 import threading
+from langgraph_supervisor.handoff import create_supervisor
+from langgraph.prebuilt import ToolNode
+from langstuff_multi_agent.config import get_llm
+from langstuff_multi_agent.config import Config
 
+config = Config()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 logger.info("Initializing primary supervisor workflow...")
 
-# Use the supervisor workflow as the main graph
-graph = supervisor_workflow
+
+def create_agent_graphs():
+    # Create compiled agent graphs with names
+    return [
+        debugger_graph.compile(name="debugger"),
+        context_manager_graph.compile(name="context_manager"),
+        project_manager_graph.compile(name="project_manager"),
+        professional_coach_graph.compile(name="professional_coach"),
+        life_coach_graph.compile(name="life_coach"),
+        coder_graph.compile(name="coder"),
+        analyst_graph.compile(name="analyst"),
+        researcher_graph.compile(name="researcher"),
+        general_assistant_graph.compile(name="general_assistant")
+    ]
+
+
+# Replace manual supervisor setup with official pattern
+supervisor_graph = create_supervisor(
+    create_agent_graphs(),
+    model=get_llm(config.get("configurable", {})),
+    output_mode="last_message",
+    supervisor_name="main_supervisor"
+)
 
 # Export all graphs required by langgraph.json
 __all__ = [

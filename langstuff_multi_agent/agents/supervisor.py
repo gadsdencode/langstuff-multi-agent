@@ -8,6 +8,12 @@ from langchain_core.messages import HumanMessage
 from langstuff_multi_agent.config import get_llm
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
+import re
+import uuid
+from langchain.tools import tool, ToolMessage, ToolCall
+from langchain.schema import Command, AIMessage, BaseTool
+from typing_extensions import Annotated
+from langchain_core.tools import InjectedToolCallId
 
 # Import individual workflows.
 from langstuff_multi_agent.agents.debugger import debugger_graph
@@ -43,6 +49,57 @@ def log_agent_failure(agent_name, query):
     logger.error(f"Agent '{agent_name}' failed to process query: {query}")
 
 
+# ======================
+# Handoff Implementation
+# ======================
+WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_agent_name(agent_name: str) -> str:
+    return WHITESPACE_RE.sub("_", agent_name.strip()).lower()
+
+
+def create_handoff_tool(*, agent_name: str) -> BaseTool:
+    tool_name = f"transfer_to_{_normalize_agent_name(agent_name)}"
+
+    @tool(tool_name)
+    def handoff_to_agent(
+        tool_call_id: Annotated[str, InjectedToolCallId],
+    ):
+        tool_message = ToolMessage(
+            content=f"Successfully transferred to {agent_name}",
+            name=tool_name,
+            tool_call_id=tool_call_id,
+        )
+        return Command(
+            goto=agent_name,
+            graph=Command.PARENT,
+            update={"messages": [tool_message]},
+        )
+    return handoff_to_agent
+
+
+def create_handoff_back_messages(agent_name: str, supervisor_name: str):
+    tool_call_id = str(uuid.uuid4())
+    tool_name = f"transfer_back_to_{_normalize_agent_name(supervisor_name)}"
+    tool_calls = [ToolCall(name=tool_name, args={}, id=tool_call_id)]
+    return (
+        AIMessage(
+            content=f"Transferring back to {supervisor_name}",
+            tool_calls=tool_calls,
+            name=agent_name,
+        ),
+        ToolMessage(
+            content=f"Successfully transferred back to {supervisor_name}",
+            name=tool_name,
+            tool_call_id=tool_call_id,
+        ),
+    )
+
+
+# ======================
+# Core Supervisor Logic
+# ======================
 class RouterInput(BaseModel):
     messages: list[HumanMessage] = Field(..., description="User messages to route")
     last_route: Optional[str] = Field(None, description="Previous routing destination")
@@ -51,21 +108,7 @@ class RouterInput(BaseModel):
 class RouteDecision(BaseModel):
     """Routing decision with chain-of-thought reasoning"""
     reasoning: str = Field(..., description="Step-by-step routing logic")
-    destination: Literal[
-        'debugger',
-        'context_manager',
-        'project_manager',
-        'professional_coach',
-        'life_coach',
-        'coder',
-        'analyst',
-        'researcher',
-        'general_assistant'
-    ] = Field(..., description="Target agent for this request")
-    require_tools: list[str] = Field(
-        default_factory=list,
-        description="Required tools for this task"
-    )
+    destination: Literal[tuple(AVAILABLE_AGENTS)] = Field(..., description="Target agent")
 
 
 class RouterState(RouterInput):
@@ -114,7 +157,39 @@ def route_query(state: RouterState):
         )
 
 
-# Create and compile the supervisor workflow
+def process_tool_results(state, config):
+    """Updated to handle command routing"""
+    tool_outputs = []
+    for msg in state["messages"]:
+        if tool_calls := getattr(msg, "tool_calls", None):
+            for tc in tool_calls:
+                if tc['name'].startswith('transfer_to_'):
+                    return {"messages": [Command(
+                        goto=tc['name'].replace('transfer_to_', ''),
+                        graph=Command.PARENT
+                    )]}
+                # Existing tool processing logic
+                try:
+                    output = f"Tool {tc['name']} result: {tc['output']}"
+                    tool_outputs.append({
+                        "tool_call_id": tc["id"],
+                        "output": output
+                    })
+                except Exception as e:
+                    tool_outputs.append({
+                        "tool_call_id": tc["id"],
+                        "error": str(e)
+                    })
+
+    return {"messages": [ToolMessage(
+        content=to["output"],
+        tool_call_id=to["tool_call_id"]
+    ) for to in tool_outputs]}
+
+
+# ======================
+# Workflow Construction
+# ======================
 def create_supervisor_workflow():
     builder = StateGraph(RouterState)
 
@@ -131,27 +206,14 @@ def create_supervisor_workflow():
     builder.add_node("general_assistant", general_assistant_graph)
 
     # Conditional edges
-    def decide_routes(state: RouterState):
-        """Handles routing decision and retries if necessary"""
-        if state.reasoning and "error" in state.reasoning.lower():
-            return "general_assistant"
-        return state.destination
-
     builder.add_conditional_edges(
         "route_query",
-        decide_routes,
-        {
-            "debugger": "debugger",
-            "context_manager": "context_manager",
-            "project_manager": "project_manager",
-            "professional_coach": "professional_coach",
-            "life_coach": "life_coach",
-            "coder": "coder",
-            "analyst": "analyst",
-            "researcher": "researcher",
-            "general_assistant": "general_assistant"
-        }
+        lambda s: s.destination if s.destination in AVAILABLE_AGENTS else "general_assistant",
+        {agent: agent for agent in AVAILABLE_AGENTS}
     )
+
+    # Tool processing edge
+    builder.add_edge("process_results", "route_query")
 
     builder.set_entry_point("route_query")
     return builder.compile()

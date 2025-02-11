@@ -16,6 +16,7 @@ from langstuff_multi_agent.utils.tools import (
     has_tool_calls
 )
 from langstuff_multi_agent.config import get_llm
+from langchain.schema import Command
 
 debugger_workflow = StateGraph(MessagesState)
 
@@ -37,6 +38,18 @@ def analyze_code(state):
 
 def process_tool_results(state, config):
     """Processes tool outputs and formats FINAL user response"""
+    # Add handoff command detection
+    for msg in state["messages"]:
+        if tool_calls := getattr(msg, 'tool_calls', None):
+            for tc in tool_calls:
+                if tc['name'].startswith('transfer_to_'):
+                    return {
+                        "messages": [Command(
+                            goto=tc['name'].replace('transfer_to_', ''),
+                            graph=Command.PARENT
+                        )]
+                    }
+
     last_message = state["messages"][-1]
     tool_outputs = []
 
