@@ -129,7 +129,7 @@ def route_query(state: RouterState):
     - Debugger: Code errors, troubleshooting
     - Coder: Writing/explaining code
     - Analyst: Data analysis requests
-    - Researcher: Fact-finding, web research
+    - Researcher: Fact-finding, web research, news research
     - Project Manager: Task planning
     - Life Coach: Personal life strategies and advice
     - Professional Coach: Professional career strategies and advice

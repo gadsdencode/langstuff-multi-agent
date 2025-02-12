@@ -57,19 +57,19 @@ class Config:
         "anthropic": {
             "model_name": "claude-3-5-sonnet-20240620",
             "temperature": 0.0,
-            "top_p": 0.7,
+            "top_p": 0.9,
             "max_tokens": 4000,
         },
         "openai": {
-            "model_name": "gpt-4o",  # Preferred openai model
-            "temperature": 0.0,
-            "top_p": 0.7,
+            "model_name": "gpt-4o-mini",  # Preferred openai model
+            "temperature": 0.4,
+            "top_p": 0.9,
             "max_tokens": 4000,
         },
         "grok": {
             "model_name": "grok-2-1212",  # Fallback to latest Grok model - this model name is accurate
-            "temperature": 0.0,
-            "top_p": 0.7,
+            "temperature": 0.4,
+            "top_p": 0.9,
             "max_tokens": 4000,
         }
     }
