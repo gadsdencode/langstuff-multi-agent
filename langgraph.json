@@ -16,7 +16,8 @@
         "general_assistant": "./langstuff_multi_agent/agent.py:general_assistant_graph",
         "news_reporter": "./langstuff_multi_agent/agent.py:news_reporter_graph",
         "customer_support": "./langstuff_multi_agent/agent.py:customer_support_graph",
-        "marketing_strategist": "./langstuff_multi_agent/agent.py:marketing_strategist_graph"
+        "marketing_strategist": "./langstuff_multi_agent/agent.py:marketing_strategist_graph",
+        "creative_content": "./langstuff_multi_agent/agent.py:creative_content_graph"
     },
     "agents": [
         {
