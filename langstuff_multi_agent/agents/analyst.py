@@ -13,7 +13,7 @@ from langstuff_multi_agent.utils.tools import (
     python_repl,
     calc_tool,
     has_tool_calls,
-    news_search
+    news_tool
 )
 from langstuff_multi_agent.config import get_llm
 from langchain_core.messages import ToolMessage
@@ -21,7 +21,7 @@ from langchain_core.messages import ToolMessage
 analyst_graph = StateGraph(MessagesState)
 
 # Define tools for analysis tasks
-tools = [search_web, python_repl, calc_tool, news_search]
+tools = [search_web, python_repl, calc_tool, news_tool]
 tool_node = ToolNode(tools)
 
 

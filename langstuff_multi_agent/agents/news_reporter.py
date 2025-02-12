@@ -11,7 +11,6 @@ from langstuff_multi_agent.utils.tools import (
     search_web,
     news_tool,
     calc_tool,
-    news_search,
     has_tool_calls
 )
 from langstuff_multi_agent.config import ConfigSchema, get_llm
@@ -21,7 +20,7 @@ from langchain_core.messages import ToolMessage
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define the tools available for the news reporter
-tools = [search_web, news_tool, calc_tool, news_search]
+tools = [search_web, news_tool, calc_tool, news_tool]
 tool_node = ToolNode(tools)
 
 
@@ -47,7 +46,7 @@ def news_report(state, config):
                             "- search_web: Look up recent info and data.\n"
                             "- news_tool: Retrieve the latest news articles and headlines.\n"
                             "- calc_tool: Perform calculations if necessary.\n"
-                            "- news_search: Conduct specialized news searches.\n\n"
+                            "- news_tool: Conduct specialized news searches.\n\n"
                             "Instructions:\n"
                             "1. Analyze the user's news query.\n"
                             "2. Use the available tools to gather accurate and up-to-date news.\n"
