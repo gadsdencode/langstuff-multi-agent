@@ -19,6 +19,8 @@ from langstuff_multi_agent.agents.analyst import analyst_graph
 from langstuff_multi_agent.agents.researcher import researcher_graph
 from langstuff_multi_agent.agents.general_assistant import general_assistant_graph
 from langstuff_multi_agent.agents.news_reporter import news_reporter_graph
+from langstuff_multi_agent.agents.customer_support import customer_support_graph
+from langstuff_multi_agent.agents.marketing_strategist import marketing_strategist_graph
 import threading
 from langstuff_multi_agent.agents.supervisor import create_supervisor
 from langstuff_multi_agent.config import get_llm
@@ -43,7 +45,9 @@ def create_agent_graphs():
         "analyst": analyst_graph,
         "researcher": researcher_graph,
         "general_assistant": general_assistant_graph,
-        "news_reporter": news_reporter_graph
+        "news_reporter": news_reporter_graph,
+        "customer_support": customer_support_graph,
+        "marketing_strategist": marketing_strategist_graph
     }
 
 
@@ -66,7 +70,9 @@ __all__ = [
     "analyst_graph",
     "researcher_graph",
     "general_assistant_graph",
-    "news_reporter_graph"
+    "news_reporter_graph",
+    "customer_support_graph",
+    "marketing_strategist_graph"
 ]
 
 # Add explicit graph alias for entry point
@@ -78,7 +84,9 @@ available_agents = [  # Define available agents list
     "debugger", "context_manager", "project_manager",
     "professional_coach", "life_coach", "coder",
     "analyst", "researcher", "general_assistant",
-    "news_reporter"
+    "news_reporter",
+    "customer_support",
+    "marketing_strategist"
 ]
 
 
