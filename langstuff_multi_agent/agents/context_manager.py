@@ -12,10 +12,12 @@ from langstuff_multi_agent.utils.tools import (
     search_web,
     read_file,
     write_file,
-    has_tool_calls
+    has_tool_calls,
+    save_memory,
+    search_memories
 )
 from langstuff_multi_agent.config import ConfigSchema, get_llm
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import ToolMessage, AIMessage
 
 # 1. Initialize workflow FIRST
 context_manager_workflow = StateGraph(MessagesState, ConfigSchema)
@@ -41,20 +43,26 @@ def load_context():
 
 
 def manage_context(state, config):
-    """Manages conversation context with persistent storage"""
-    previous_messages = load_context()
-    updated_messages = previous_messages + state["messages"]
-
-    save_context({"messages": updated_messages})  # Save merged history
-
-    llm = get_llm(config.get("configurable", {}))
+    """Manage context using memory system"""
+    user_id = config.get("configurable", {}).get("user_id", "global")
+    
+    # Save conversation history to memory
+    save_memory.invoke([{
+        "subject": "conversation",
+        "predicate": "history",
+        "object_": msg.content
+    } for msg in state["messages"]], {"configurable": config.get("configurable", {})})
+    
+    # Retrieve relevant memories
+    memories = search_memories.invoke(
+        state["messages"][-1].content,
+        {"configurable": config.get("configurable", {})}
+    )
+    
     return {
-        "messages": [
-            llm.invoke(updated_messages + [{
-                "role": "system",
-                "content": "Track and summarize conversation history."
-            }])
-        ]
+        "messages": state["messages"] + [AIMessage(
+            content=f"Contextual memories: {memories}"
+        )]
     }
 
 

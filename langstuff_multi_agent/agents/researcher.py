@@ -13,7 +13,9 @@ from langstuff_multi_agent.utils.tools import (
     news_tool,
     calc_tool,
     has_tool_calls,
-    news_tool
+    news_tool,
+    save_memory,
+    search_memories
 )
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain_core.messages import ToolMessage
@@ -23,7 +25,7 @@ from langchain.schema import SystemMessage, HumanMessage, AIMessage
 researcher_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define research tools
-tools = [search_web, news_tool, calc_tool, news_tool]
+tools = [search_web, news_tool, calc_tool, news_tool, save_memory, search_memories]
 tool_node = ToolNode(tools)
 
 
@@ -47,7 +49,9 @@ def research(state, config):
                             "You have access to the following tools:\n"
                             "- search_web: Look up recent info and data.\n"
                             "- news_tool: Get latest news and articles.\n"
-                            "- calc_tool: Perform calculations.\n\n"
+                            "- calc_tool: Perform calculations.\n"
+                            "- save_memory: Save information to memory.\n"
+                            "- search_memories: Search for information in memory.\n\n"
                             "Instructions:\n"
                             "1. Analyze the user's research query.\n"
                             "2. Use tools to gather accurate and relevant info.\n"
@@ -106,6 +110,12 @@ def process_tool_results(state, config):
             HumanMessage(content="\n".join(tool_outputs))
         ])
         
+        # Add memory handling
+        tool_calls = [msg for msg in state["messages"] if isinstance(msg, ToolMessage)]
+        memory_operations = [tc for tc in tool_calls if tc['name'] in ('save_memory', 'search_memories')]
+        if memory_operations:
+            return handle_memory_operations(state, memory_operations, config)
+        
         return {"messages": [summary]}
 
     except (json.JSONDecodeError, ValueError) as e:
@@ -119,6 +129,37 @@ def process_tool_results(state, config):
 def validate_result(result: dict) -> bool:
     """Ensure research result has minimum required fields"""
     return isinstance(result, dict) and "content" in result
+
+
+# Add new memory handling function
+def handle_memory_operations(state, tool_calls, config):
+    outputs = []
+    for tc in tool_calls:
+        try:
+            if tc['name'] == 'save_memory':
+                result = save_memory.invoke(
+                    tc['args'], 
+                    {"configurable": config.get("configurable", {})}
+                )
+            elif tc['name'] == 'search_memories':
+                result = search_memories.invoke(
+                    tc['args'], 
+                    {"configurable": config.get("configurable", {})}
+                )
+            outputs.append({
+                "tool_call_id": tc["id"],
+                "output": result
+            })
+        except Exception as e:
+            outputs.append({
+                "tool_call_id": tc["id"],
+                "error": str(e)
+            })
+    
+    return {"messages": [ToolMessage(
+        content=json.dumps([o["output"] for o in outputs]),
+        tool_call_id=[o["tool_call_id"] for o in outputs]
+    )]}
 
 
 researcher_graph.add_node("research", research)

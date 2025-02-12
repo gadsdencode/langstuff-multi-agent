@@ -11,7 +11,9 @@ from langstuff_multi_agent.utils.tools import (
     search_web,
     news_tool,
     calc_tool,
-    has_tool_calls
+    has_tool_calls,
+    save_memory,
+    search_memories
 )
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain_core.messages import ToolMessage, AIMessage, SystemMessage, HumanMessage
@@ -22,7 +24,7 @@ import logging
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define the tools available for the news reporter
-tools = [search_web, news_tool, calc_tool]
+tools = [search_web, news_tool, calc_tool, save_memory, search_memories]
 tool_node = ToolNode(tools)
 
 # Configure logger
@@ -70,7 +72,9 @@ def news_report(state, config):
                             "You have access to the following tools:\n"
                             "- search_web: Look up recent info and data.\n"
                             "- news_tool: Retrieve the latest news articles and headlines.\n"
-                            "- calc_tool: Perform calculations if necessary.\n\n"
+                            "- calc_tool: Perform calculations if necessary.\n"
+                            "- save_memory: Save information for future reference.\n"
+                            "- search_memories: Retrieve saved information.\n\n"
                             "Instructions:\n"
                             "1. Analyze the user's news query.\n"
                             "2. Use the available tools to gather accurate and up-to-date news.\n"
@@ -126,6 +130,17 @@ def process_tool_results(state, config):
         
         if not valid_articles:
             raise ValueError("No valid articles after filtering")
+
+        # Add memory context to articles
+        if 'user_id' in config.get("configurable", {}):
+            memories = search_memories.invoke(
+                "news preferences", 
+                {"configurable": config["configurable"]}
+            )
+            if memories:
+                state["messages"].append(AIMessage(
+                    content=f"User preferences context: {memories}"
+                ))
 
         # Generate summary
         tool_outputs = []

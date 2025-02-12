@@ -13,7 +13,9 @@ from langstuff_multi_agent.utils.tools import (
     job_search_tool,
     has_tool_calls,
     get_current_weather,
-    calendar_tool
+    calendar_tool,
+    save_memory,
+    search_memories
 )
 from langstuff_multi_agent.config import get_llm
 from langchain_core.messages import ToolMessage
@@ -21,7 +23,7 @@ from langchain_core.messages import ToolMessage
 professional_coach_graph = StateGraph(MessagesState)
 
 # Define the tools for professional coaching
-tools = [search_web, job_search_tool, get_current_weather, calendar_tool]
+tools = [search_web, job_search_tool, get_current_weather, calendar_tool, save_memory, search_memories]
 tool_node = ToolNode(tools)
 
 
@@ -32,6 +34,18 @@ def coach(state):
 
     llm = get_llm(config.get("configurable", {}))
     response = llm.invoke(messages)
+
+    # Add memory context
+    if 'user_id' in state.get("configurable", {}):
+        career_goals = search_memories.invoke(
+            "career goals", 
+            {"configurable": state["configurable"]}
+        )
+        if career_goals:
+            messages.append({
+                "role": "system",
+                "content": f"User career history: {career_goals}"
+            })
 
     return {"messages": messages + [response]}
 
