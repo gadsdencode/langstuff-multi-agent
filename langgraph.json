@@ -96,6 +96,12 @@
             "file": "./langstuff_multi_agent/agent.py",
             "graph": "marketing_strategist",
             "description": "Agent that provides marketing strategy, insights, trends, and planning."
+        },
+        {
+            "name": "CREATIVE_CONTENT",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "creative_content",
+            "description": "Agent that provides creative content, marketing copy, social media posts, or brainstorming ideas."
         }
     ],
     "dependencies": [

@@ -17,6 +17,9 @@ from langstuff_multi_agent.utils.tools import (
 )
 from langstuff_multi_agent.config import get_llm
 from langchain_core.messages import ToolMessage
+import json
+from langchain.schema import SystemMessage, HumanMessage, AIMessage
+import logging
 
 analyst_graph = StateGraph(MessagesState)
 
@@ -24,6 +27,7 @@ analyst_graph = StateGraph(MessagesState)
 tools = [search_web, python_repl, calc_tool, news_tool]
 tool_node = ToolNode(tools)
 
+logger = logging.getLogger(__name__)
 
 def analyze_data(state):
     """Analyze data and perform calculations."""
@@ -37,47 +41,64 @@ def analyze_data(state):
 
 
 def process_tool_results(state, config):
-    """Processes tool outputs and formats FINAL user response"""
-    # Add handoff command detection
-    for msg in state["messages"]:
-        if tool_calls := getattr(msg, 'tool_calls', None):
-            for tc in tool_calls:
-                if tc['name'].startswith('transfer_to_'):
-                    return {
-                        "messages": [ToolMessage(
-                            goto=tc['name'].replace('transfer_to_', ''),
-                            graph=ToolMessage.PARENT
-                        )]
-                    }
+    """Processes tool outputs with robust data validation"""
+    # Clean previous error messages
+    state["messages"] = [msg for msg in state["messages"]
+                        if not (isinstance(msg, ToolMessage) and "⚠️" in msg.content)]
 
-    last_message = state["messages"][-1]
-    tool_outputs = []
+    try:
+        # Get last tool message with content validation
+        last_tool_msg = next(msg for msg in reversed(state["messages"]) 
+                            if isinstance(msg, ToolMessage))
+        
+        # Clean and validate raw content
+        raw_content = last_tool_msg.content
+        clean_content = raw_content.replace('\0', '').replace('\ufeff', '').strip()
+        if not clean_content:
+            raise ValueError("Empty tool response after cleaning")
 
-    if tool_calls := getattr(last_message, 'tool_calls', None):
-        for tc in tool_calls:
-            try:
-                output = f"Tool {tc['name']} result: {tc['output']}"
-                tool_outputs.append({
-                    "tool_call_id": tc["id"],
-                    "output": output
-                })
-            except Exception as e:
-                tool_outputs.append({
-                    "tool_call_id": tc["id"],
-                    "error": f"Tool execution failed: {str(e)}"
-                })
+        # Hybrid data parsing
+        if clean_content[0] in ('{', '['):
+            results = json.loads(clean_content, strict=False)
+        else:
+            results = [{"content": line} for line in clean_content.split("\n") if line.strip()]
+        
+        # Validate and process results
+        if not isinstance(results, list):
+            results = [results]
+            
+        valid_results = [
+            res for res in results[:5]
+            if validate_analysis_result(res)
+        ]
 
-        return {
-            "messages": state["messages"] + [
-                {
-                    "role": "tool",
-                    "content": to["output"],
-                    "tool_call_id": to["tool_call_id"]
-                } for to in tool_outputs
-            ]
-        }
-    return state
+        if not valid_results:
+            raise ValueError("No valid analysis results")
 
+        # Generate analytical summary
+        tool_outputs = []
+        for res in valid_results:
+            output = f"{res.get('metric', 'Result')}: {res['value']}" if 'value' in res else res['content']
+            tool_outputs.append(output[:200])
+
+        llm = get_llm(config.get("configurable", {}))
+        summary = llm.invoke([
+            SystemMessage(content="Analyze and interpret these results:"),
+            HumanMessage(content="\n".join(tool_outputs))
+        ])
+        
+        return {"messages": [summary]}
+
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error(f"Analysis Error: {str(e)}")
+        return {"messages": [AIMessage(
+            content=f"Analysis summary:\n{clean_content[:500]}",
+            additional_kwargs={"raw_data": True}
+        )]}
+
+def validate_analysis_result(result: dict) -> bool:
+    """Validate analysis result structure"""
+    return isinstance(result, dict) and any(key in result for key in ['content', 'value'])
 
 # Initialize and configure the analyst graph
 analyst_graph.add_node("analyze_data", analyze_data)
