@@ -60,7 +60,7 @@ def news_report(state, config):
 
 
 def process_tool_results(state, config):
-    """Process tool outputs and format the final news report for the user."""
+    """Process tool outputs and format the final news report."""
     # Check for handoff commands to other agents
     for msg in state["messages"]:
         if tool_calls := getattr(msg, 'tool_calls', None):
@@ -73,31 +73,31 @@ def process_tool_results(state, config):
                         )]
                     }
 
-    last_message = state["messages"][-1]
+    # Process tool outputs
     tool_outputs = []
+    for msg in state["messages"]:
+        if hasattr(msg, 'tool_calls'):
+            for tc in msg.tool_calls:
+                output = next(
+                    (t['output'] for t in state.get('tool_outputs', []) 
+                     if t['tool_call_id'] == tc['id']),
+                    "No results found"
+                )
+                tool_outputs.append(f"{tc['name']} results: {output}")
 
-    if tool_calls := getattr(last_message, 'tool_calls', None):
-        for tc in tool_calls:
-            try:
-                output = f"Tool {tc['name']} result: {tc['output']}"
-                tool_outputs.append({
-                    "tool_call_id": tc["id"],
-                    "output": output
-                })
-            except Exception as e:
-                tool_outputs.append({
-                    "tool_call_id": tc["id"],
-                    "error": f"Tool execution failed: {str(e)}"
-                })
-        return {
-            "messages": state["messages"] + [
-                {
-                    "role": "tool",
-                    "content": to["output"],
-                    "tool_call_id": to["tool_call_id"]
-                } for to in tool_outputs
-            ]
-        }
+    # NEW: Generate final user-facing summary
+    if tool_outputs:
+        llm = get_llm(config.get("configurable", {}))
+        summary = llm.invoke([{
+            "role": "system",
+            "content": "Synthesize these tool results into a news report:"
+        }, {
+            "role": "user", 
+            "content": "\n".join(tool_outputs)
+        }])
+        
+        return {"messages": [summary]}
+    
     return state
 
 
