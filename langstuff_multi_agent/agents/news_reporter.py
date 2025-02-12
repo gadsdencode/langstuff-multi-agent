@@ -84,70 +84,71 @@ def news_report(state, config):
 
 
 def process_tool_results(state, config):
-    """Process tool outputs with enhanced error handling"""
-    # NEW: Prune previous error messages first
-    state["messages"] = [msg for msg in state["messages"] 
-                        if not (isinstance(msg, ToolMessage) and "⚠️ Error" in msg.content)]
-    
-    # Existing handoff check remains
-    for msg in state["messages"]:
-        if isinstance(msg, AIMessage) and msg.tool_calls:
-            for tc in msg.tool_calls:
-                if tc['name'].startswith('transfer_to_'):
-                    return {
-                        "messages": [ToolMessage(
-                            goto=tc['name'].replace('transfer_to_', ''),
-                            graph=ToolMessage.PARENT
-                        )]
-                    }
+    """Process tool outputs with robust JSON validation"""
+    # Clean previous error messages
+    state["messages"] = [msg for msg in state["messages"]
+                        if not (isinstance(msg, ToolMessage) and "⚠️" in msg.content)]
 
-    # NEW: Add recursion counter
-    state.setdefault("recursion_count", 0)
-    if state["recursion_count"] > 3:
-        return {"messages": [AIMessage(content="Maximum processing attempts reached")]}
-    state["recursion_count"] += 1
-
-    # Modified processing with strict validation
     try:
+        # Get last tool message with content validation
         last_tool_msg = next(msg for msg in reversed(state["messages"]) 
                             if isinstance(msg, ToolMessage))
         
-        # NEW: Validate content before parsing
+        # Null byte removal and encoding cleanup
         raw_content = last_tool_msg.content
-        if not raw_content or not isinstance(raw_content, str):
-            raise ValueError("Empty or non-string tool response")
+        if not isinstance(raw_content, str):
+            raise ValueError("Non-string tool response")
             
-        # Clean content: remove null bytes and whitespace
-        clean_content = raw_content.replace('\0', '').strip()
+        clean_content = raw_content.replace('\0', '').replace('\ufeff', '').strip()
         if not clean_content:
             raise ValueError("Empty content after cleaning")
 
-        articles = json.loads(clean_content)
+        # Validate JSON structure before parsing
+        if clean_content[0] not in ('{', '[') or clean_content[-1] not in ('}', ']'):
+            raise json.JSONDecodeError("Missing JSON brackets", "", 0)
+
+        # Parse with explicit encoding
+        articles = json.loads(clean_content, strict=False)  # Allow control characters
         
+        # Convert single article to list
         if not isinstance(articles, list):
             articles = [articles]
 
+        # Process articles with validation
         valid_articles = [
-            art for art in articles[:5]  # Hard limit
-            if validate_article(art)  # NEW validation function
+            art for art in articles[:5]
+            if validate_article(art)
         ]
         
         if not valid_articles:
             raise ValueError("No valid articles after filtering")
 
-        # Rest of processing remains...
-        # ... existing summary generation code ...
+        # Generate summary
+        tool_outputs = []
+        for art in valid_articles:
+            title = art.get('title', 'Untitled')[:100]
+            source = art.get('source', {}).get('name', 'Unknown')[:50]
+            tool_outputs.append(f"{title} ({source})")
+
+        llm = get_llm(config.get("configurable", {}))
+        summary = llm.invoke([
+            SystemMessage(content="Create concise bullet points from these articles:"),
+            HumanMessage(content="\n".join(tool_outputs))
+        ])
+        
+        return {"messages": [summary]}
 
     except json.JSONDecodeError as e:
-        logger.error(f"JSON parse failed. Raw content: {raw_content[:200]}")
+        logger.error(f"JSON Error: {e}\nRaw Content: {raw_content[:200]}")
         return {"messages": [AIMessage(
-            content=f"News format error: {str(e)}",
-            additional_kwargs={"error": True}
+            content=f"⚠️ News format error: {str(e)[:100]}",
+            additional_kwargs={"error": True, "raw_content": raw_content[:200]}
         )]}
+        
     except ValueError as e:
-        logger.error(f"Content validation failed: {str(e)}")
+        logger.error(f"Validation Error: {str(e)}")
         return {"messages": [AIMessage(
-            content=f"Invalid news data: {str(e)}",
+            content=f"⚠️ Invalid news data: {str(e)[:100]}",
             additional_kwargs={"error": True}
         )]}
 
