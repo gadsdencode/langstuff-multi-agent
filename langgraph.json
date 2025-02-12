@@ -14,7 +14,9 @@
         "analyst": "./langstuff_multi_agent/agent.py:analyst_graph",
         "researcher": "./langstuff_multi_agent/agent.py:researcher_graph",
         "general_assistant": "./langstuff_multi_agent/agent.py:general_assistant_graph",
-        "news_reporter": "./langstuff_multi_agent/agent.py:news_reporter_graph"
+        "news_reporter": "./langstuff_multi_agent/agent.py:news_reporter_graph",
+        "customer_support": "./langstuff_multi_agent/agent.py:customer_support_graph",
+        "marketing_strategist": "./langstuff_multi_agent/agent.py:marketing_strategist_graph"
     },
     "agents": [
         {
@@ -82,6 +84,18 @@
             "file": "./langstuff_multi_agent/agent.py",
             "graph": "news_reporter",
             "description": "Agent that searches, researches, explains and summarizes news reports."
+        },
+        {
+            "name": "CUSTOMER_SUPPORT",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "customer_support",
+            "description": "Agent that provides customer support and assistance."
+        },
+        {
+            "name": "MARKETING_STRATEGIST",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "marketing_strategist",
+            "description": "Agent that provides marketing strategy, insights, trends, and planning."
         }
     ],
     "dependencies": [
