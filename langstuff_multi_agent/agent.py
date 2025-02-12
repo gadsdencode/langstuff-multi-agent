@@ -49,7 +49,6 @@ def create_agent_graphs():
 supervisor_graph = create_supervisor(
     create_agent_graphs(),
     getattr(config, 'configurable', {}),
-    output_mode="last_message",
     supervisor_name="main_supervisor"
 )
 

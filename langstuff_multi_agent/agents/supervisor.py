@@ -191,7 +191,8 @@ def process_tool_results(state, config):
 # ======================
 # Workflow Construction
 # ======================
-def create_supervisor():
+def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None):
+    """Create supervisor workflow with enhanced configurability"""
     builder = StateGraph(RouterState)
 
     # Add nodes using imported compiled graphs
