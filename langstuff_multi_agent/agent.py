@@ -48,7 +48,7 @@ def create_agent_graphs():
 # Replace manual supervisor setup with official pattern
 supervisor_graph = create_supervisor(
     create_agent_graphs(),
-    model=get_llm(config.get("configurable", {})),
+    getattr(config, 'configurable', {}),
     output_mode="last_message",
     supervisor_name="main_supervisor"
 )

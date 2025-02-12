@@ -29,10 +29,10 @@ def analyze_code(state):
     """Analyze code and identify errors."""
     messages = state.get("messages", [])
     config = state.get("config", {})
-    
+
     llm = get_llm(config.get("configurable", {}))
     response = llm.invoke(messages)
-    
+
     return {"messages": messages + [response]}
 
 
