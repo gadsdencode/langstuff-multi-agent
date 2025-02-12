@@ -206,6 +206,7 @@ def create_supervisor_workflow():
     builder.add_node("analyst", analyst_graph)
     builder.add_node("researcher", researcher_graph)
     builder.add_node("general_assistant", general_assistant_graph)
+    builder.add_node("process_results", process_tool_results)
 
     # Conditional edges
     builder.add_conditional_edges(
@@ -214,7 +215,7 @@ def create_supervisor_workflow():
         {agent: agent for agent in AVAILABLE_AGENTS}
     )
 
-    # Tool processing edge
+    # Regular edges must point to REGISTERED nodes
     builder.add_edge("process_results", "route_query")
 
     builder.set_entry_point("route_query")
