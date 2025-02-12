@@ -195,21 +195,24 @@ def process_tool_results(state, config):
     }
 
 
-def should_end(state: dict) -> bool:
+def should_continue(state: dict) -> bool:
     """
-    Determine if the workflow should terminate based on message state.
+    Determine if the workflow should continue processing.
 
-    Returns True if the final message is a proper assistant message with no pending tool calls.
+    Returns True if there are pending tool calls or no final assistant message.
     """
     messages = state.get("messages", [])
     if not messages:
-        return False
+        return True
 
     last_message = messages[-1]
-    # Check if last message is an AI message with no tool calls
-    if isinstance(last_message, AIMessage) and not getattr(last_message, "tool_calls", None):
-        return True
-    return False
+    # Continue if not an AI message or has tool calls
+    return not isinstance(last_message, AIMessage) or bool(getattr(last_message, "tool_calls", None))
+
+
+def end_state(state: RouterState):
+    """Terminal node that returns the final state."""
+    return state
 
 
 # ======================
@@ -231,6 +234,7 @@ def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None
     builder.add_node("researcher", researcher_graph)
     builder.add_node("general_assistant", general_assistant_graph)
     builder.add_node("process_results", process_tool_results)
+    builder.add_node("end", end_state)  # Add terminal node
 
     # Conditional edges
     builder.add_conditional_edges(
@@ -239,11 +243,11 @@ def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None
         {agent: agent for agent in AVAILABLE_AGENTS}
     )
 
-    # Add conditional edge from process_results to either END or route_query
+    # Add conditional edge from process_results to either end or route_query
     builder.add_conditional_edges(
         "process_results",
-        lambda state: "END" if should_end(state) else "route_query",
-        {"route_query": "route_query", "END": "END"}
+        lambda state: "route_query" if should_continue(state) else "end",
+        {"route_query": "route_query", "end": "end"}
     )
 
     builder.set_entry_point("route_query")
