@@ -159,9 +159,13 @@ def route_query(state: RouterState):
 
 
 def process_tool_results(state, config):
-    """Updated to handle command routing"""
+    """Updated to preserve final assistant messages"""
     tool_outputs = []
+    final_messages = []
+    
     for msg in state["messages"]:
+        if isinstance(msg, AIMessage) and not msg.tool_calls:
+            final_messages.append(msg)  # Capture final assistant response
         if tool_calls := getattr(msg, "tool_calls", None):
             for tc in tool_calls:
                 if tc['name'].startswith('transfer_to_'):
@@ -182,10 +186,13 @@ def process_tool_results(state, config):
                         "error": str(e)
                     })
 
-    return {"messages": [ToolMessage(
-        content=to["output"],
-        tool_call_id=to["tool_call_id"]
-    ) for to in tool_outputs]}
+    return {
+        "messages": [
+            *final_messages,  # Preserve final responses
+            *[ToolMessage(content=to["output"], tool_call_id=to["tool_call_id"]) 
+              for to in tool_outputs]
+        ]
+    }
 
 
 # ======================
