@@ -67,18 +67,25 @@ def process_tool_results(state, config):
                     "error": f"Tool execution failed: {str(e)}"
                 })
 
+        llm = get_llm(config.get("configurable", {}))
+        final_response = llm.invoke(state["messages"])
+
         # Submit tool outputs and get final response
         return {
             "messages": state["messages"] + [
                 {
                     "role": "tool",
-                    "content": "\n".join([to["output"] for to in tool_outputs]),
+                    "content": to["output"],
                     "tool_call_id": to["tool_call_id"]
                 } for to in tool_outputs
+            ] + [
+                {
+                    "role": "assistant",
+                    "content": final_response.content
+                }
             ]
         }
 
-    # If no tool calls, return original state
     return state
 
 
