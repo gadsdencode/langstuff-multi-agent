@@ -162,7 +162,7 @@ def process_tool_results(state, config):
     """Updated to preserve final assistant messages"""
     tool_outputs = []
     final_messages = []
-    
+
     for msg in state["messages"]:
         if isinstance(msg, AIMessage) and not msg.tool_calls:
             final_messages.append(msg)  # Capture final assistant response
@@ -195,6 +195,23 @@ def process_tool_results(state, config):
     }
 
 
+def should_end(state: dict) -> bool:
+    """
+    Determine if the workflow should terminate based on message state.
+
+    Returns True if the final message is a proper assistant message with no pending tool calls.
+    """
+    messages = state.get("messages", [])
+    if not messages:
+        return False
+
+    last_message = messages[-1]
+    # Check if last message is an AI message with no tool calls
+    if isinstance(last_message, AIMessage) and not getattr(last_message, "tool_calls", None):
+        return True
+    return False
+
+
 # ======================
 # Workflow Construction
 # ======================
@@ -222,8 +239,12 @@ def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None
         {agent: agent for agent in AVAILABLE_AGENTS}
     )
 
-    # Regular edges must point to REGISTERED nodes
-    builder.add_edge("process_results", "route_query")
+    # Add conditional edge from process_results to either END or route_query
+    builder.add_conditional_edges(
+        "process_results",
+        lambda state: "END" if should_end(state) else "route_query",
+        {"route_query": "route_query", "END": "END"}
+    )
 
     builder.set_entry_point("route_query")
     return builder.compile()
