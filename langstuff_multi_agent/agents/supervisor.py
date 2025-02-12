@@ -30,6 +30,7 @@ from langstuff_multi_agent.agents.news_reporter import news_reporter_graph
 from langstuff_multi_agent.agents.customer_support import customer_support_graph
 from langstuff_multi_agent.agents.marketing_strategist import marketing_strategist_graph
 from langstuff_multi_agent.agents.creative_content import creative_content_graph
+from langstuff_multi_agent.agents.financial_analyst import financial_analyst_graph
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -48,7 +49,8 @@ AVAILABLE_AGENTS = [
     'news_reporter',
     'customer_support',
     'marketing_strategist',
-    'creative_content'
+    'creative_content',
+    'financial_analyst'
 ]
 
 
@@ -144,7 +146,8 @@ def route_query(state: RouterState):
     - News Reporter: News searching, reporting and summaries
     - Customer Support: Customer support queries
     - Marketing Strategist: Marketing strategy, insights, trends, and planning
-    - Creative Content: Creative writing, marketing copy, social media posts, or brainstorming ideas"""
+    - Creative Content: Creative writing, marketing copy, social media posts, or brainstorming ideas
+    - Financial Analyst: Financial analysis, market data, forecasting, and investment insights"""
 
     structured_llm = llm.with_structured_output(RouteDecision)
 
@@ -248,6 +251,7 @@ def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None
     builder.add_node("customer_support", customer_support_graph)
     builder.add_node("marketing_strategist", marketing_strategist_graph)
     builder.add_node("creative_content", creative_content_graph)
+    builder.add_node("financial_analyst", financial_analyst_graph)
     builder.add_node("process_results", process_tool_results)
     builder.add_node("end", end_state)  # Add terminal node
 

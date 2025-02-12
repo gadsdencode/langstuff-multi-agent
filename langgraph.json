@@ -17,7 +17,8 @@
         "news_reporter": "./langstuff_multi_agent/agent.py:news_reporter_graph",
         "customer_support": "./langstuff_multi_agent/agent.py:customer_support_graph",
         "marketing_strategist": "./langstuff_multi_agent/agent.py:marketing_strategist_graph",
-        "creative_content": "./langstuff_multi_agent/agent.py:creative_content_graph"
+        "creative_content": "./langstuff_multi_agent/agent.py:creative_content_graph",
+        "financial_analyst": "./langstuff_multi_agent/agent.py:financial_analyst_graph"
     },
     "agents": [
         {
@@ -103,6 +104,12 @@
             "file": "./langstuff_multi_agent/agent.py",
             "graph": "creative_content",
             "description": "Agent that provides creative content, marketing copy, social media posts, or brainstorming ideas."
+        },
+        {
+            "name": "FINANCIAL_ANALYST",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "financial_analyst",
+            "description": "Agent that provides financial analysis, market data, forecasting, and investment insights."
         }
     ],
     "dependencies": [
