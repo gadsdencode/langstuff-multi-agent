@@ -14,7 +14,7 @@ from langstuff_multi_agent.utils.tools import (
     has_tool_calls
 )
 from langstuff_multi_agent.config import ConfigSchema, get_llm
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import ToolMessage, AIMessage, SystemMessage, HumanMessage
 
 # Create state graph for the news reporter agent
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
@@ -61,10 +61,10 @@ def news_report(state, config):
 
 def process_tool_results(state, config):
     """Process tool outputs and format the final news report."""
-    # Check for handoff commands to other agents
+    # Check for handoff commands first
     for msg in state["messages"]:
-        if tool_calls := getattr(msg, 'tool_calls', None):
-            for tc in tool_calls:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            for tc in msg.tool_calls:
                 if tc['name'].startswith('transfer_to_'):
                     return {
                         "messages": [ToolMessage(
@@ -73,32 +73,35 @@ def process_tool_results(state, config):
                         )]
                     }
 
-    # Process tool outputs
+    # Collect tool outputs from ToolMessages
     tool_outputs = []
     for msg in state["messages"]:
-        if hasattr(msg, 'tool_calls'):
-            for tc in msg.tool_calls:
-                output = next(
-                    (t['output'] for t in state.get('tool_outputs', []) 
-                     if t['tool_call_id'] == tc['id']),
-                    "No results found"
-                )
-                tool_outputs.append(f"{tc['name']} results: {output}")
+        if isinstance(msg, ToolMessage):
+            try:
+                # NewsAPI returns results as list of articles in content
+                articles = eval(msg.content) if isinstance(msg.content, str) else msg.content
+                for article in articles:
+                    title = article.get('title', 'No title')
+                    source = article.get('source', {}).get('name', 'Unknown')
+                    tool_outputs.append(f"{title} ({source})")
+            except Exception as e:
+                tool_outputs.append(f"Error processing news results: {str(e)}")
 
-    # NEW: Generate final user-facing summary
+    # Generate final summary only if we have outputs
     if tool_outputs:
         llm = get_llm(config.get("configurable", {}))
-        summary = llm.invoke([{
-            "role": "system",
-            "content": "Synthesize these tool results into a news report:"
-        }, {
-            "role": "user", 
-            "content": "\n".join(tool_outputs)
-        }])
-        
+        summary = llm.invoke([
+            SystemMessage(content="Synthesize these news articles into a bulleted list:"),
+            HumanMessage(content="\n".join(tool_outputs))
+        ])
         return {"messages": [summary]}
     
-    return state
+    # Fallback if no results
+    return {
+        "messages": [AIMessage(
+            content="Could not retrieve current news headlines. Please try again later."
+        )]
+    }
 
 
 # Configure the state graph for the news reporter agent
