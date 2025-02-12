@@ -55,7 +55,6 @@ def process_tool_results(state, config):
     if tool_calls := getattr(last_message, 'tool_calls', None):
         for tc in tool_calls:
             try:
-                # Execute tool and capture output
                 output = f"Tool {tc['name']} result: {tc['output']}"
                 tool_outputs.append({
                     "tool_call_id": tc["id"],
@@ -67,18 +66,20 @@ def process_tool_results(state, config):
                     "error": f"Tool execution failed: {str(e)}"
                 })
 
-        llm = get_llm(config.get("configurable", {}))
-        final_response = llm.invoke(state["messages"])
+        # Create messages with tool outputs
+        updated_messages = state["messages"] + [
+            {
+                "role": "tool",
+                "content": to["output"],
+                "tool_call_id": to["tool_call_id"]
+            } for to in tool_outputs
+        ]
 
-        # Submit tool outputs and get final response
+        llm = get_llm(config.get("configurable", {}))
+        final_response = llm.invoke(updated_messages)
+
         return {
-            "messages": state["messages"] + [
-                {
-                    "role": "tool",
-                    "content": to["output"],
-                    "tool_call_id": to["tool_call_id"]
-                } for to in tool_outputs
-            ] + [
+            "messages": updated_messages + [
                 {
                     "role": "assistant",
                     "content": final_response.content
