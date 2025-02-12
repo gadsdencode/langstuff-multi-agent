@@ -192,7 +192,7 @@ def process_tool_results(state, config):
 # ======================
 # Workflow Construction
 # ======================
-def create_supervisor_workflow():
+def create_supervisor():
     builder = StateGraph(RouterState)
 
     # Add nodes using imported compiled graphs
@@ -222,6 +222,6 @@ def create_supervisor_workflow():
     return builder.compile()
 
 
-supervisor_workflow = create_supervisor_workflow()
+supervisor_workflow = create_supervisor()
 
-__all__ = ["supervisor_workflow"]
+__all__ = ["create_supervisor"]
