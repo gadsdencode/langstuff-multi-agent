@@ -12,14 +12,16 @@ from langstuff_multi_agent.utils.tools import (
     search_web,
     python_repl,
     calc_tool,
-    has_tool_calls
+    has_tool_calls,
+    news_tool
 )
 from langstuff_multi_agent.config import get_llm
+from langchain_core.messages import ToolMessage
 
 analyst_graph = StateGraph(MessagesState)
 
 # Define tools for analysis tasks
-tools = [search_web, python_repl, calc_tool]
+tools = [search_web, python_repl, calc_tool, news_tool]
 tool_node = ToolNode(tools)
 
 
@@ -27,15 +29,27 @@ def analyze_data(state):
     """Analyze data and perform calculations."""
     messages = state.get("messages", [])
     config = state.get("config", {})
-    
+
     llm = get_llm(config.get("configurable", {}))
     response = llm.invoke(messages)
-    
+
     return {"messages": messages + [response]}
 
 
 def process_tool_results(state, config):
     """Processes tool outputs and formats FINAL user response"""
+    # Add handoff command detection
+    for msg in state["messages"]:
+        if tool_calls := getattr(msg, 'tool_calls', None):
+            for tc in tool_calls:
+                if tc['name'].startswith('transfer_to_'):
+                    return {
+                        "messages": [ToolMessage(
+                            goto=tc['name'].replace('transfer_to_', ''),
+                            graph=ToolMessage.PARENT
+                        )]
+                    }
+
     last_message = state["messages"][-1]
     tool_outputs = []
 
@@ -74,7 +88,9 @@ analyst_graph.add_edge(START, "analyze_data")
 
 analyst_graph.add_conditional_edges(
     "analyze_data",
-    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    lambda state: (
+        "tools" if has_tool_calls(state.get("messages", [])) else "END"
+    ),
     {"tools": "tools", "END": END}
 )
 

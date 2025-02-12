@@ -13,14 +13,16 @@ from langstuff_multi_agent.utils.tools import (
     python_repl,
     read_file,
     write_file,
-    has_tool_calls
+    has_tool_calls,
+    calc_tool
 )
 from langstuff_multi_agent.config import get_llm
+from langchain_core.messages import ToolMessage
 
 debugger_workflow = StateGraph(MessagesState)
 
 # Define the tools available to the Debugger Agent
-tools = [search_web, python_repl, read_file, write_file]
+tools = [search_web, python_repl, read_file, write_file, calc_tool]
 tool_node = ToolNode(tools)
 
 
@@ -28,15 +30,27 @@ def analyze_code(state):
     """Analyze code and identify errors."""
     messages = state.get("messages", [])
     config = state.get("config", {})
-    
+
     llm = get_llm(config.get("configurable", {}))
     response = llm.invoke(messages)
-    
+
     return {"messages": messages + [response]}
 
 
 def process_tool_results(state, config):
     """Processes tool outputs and formats FINAL user response"""
+    # Add handoff command detection
+    for msg in state["messages"]:
+        if tool_calls := getattr(msg, 'tool_calls', None):
+            for tc in tool_calls:
+                if tc['name'].startswith('transfer_to_'):
+                    return {
+                        "messages": [ToolMessage(
+                            goto=tc['name'].replace('transfer_to_', ''),
+                            graph=ToolMessage.PARENT
+                        )]
+                    }
+
     last_message = state["messages"][-1]
     tool_outputs = []
 

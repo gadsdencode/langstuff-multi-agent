@@ -8,7 +8,6 @@ by isolating internal subgraphs.
 """
 
 import logging
-from langgraph.graph import Graph
 from langstuff_multi_agent.agents.supervisor import supervisor_workflow
 from langstuff_multi_agent.agents.debugger import debugger_graph
 from langstuff_multi_agent.agents.context_manager import context_manager_graph
@@ -19,20 +18,49 @@ from langstuff_multi_agent.agents.coder import coder_graph
 from langstuff_multi_agent.agents.analyst import analyst_graph
 from langstuff_multi_agent.agents.researcher import researcher_graph
 from langstuff_multi_agent.agents.general_assistant import general_assistant_graph
+from langstuff_multi_agent.agents.news_reporter import news_reporter_graph
+from langstuff_multi_agent.agents.customer_support import customer_support_graph
+from langstuff_multi_agent.agents.marketing_strategist import marketing_strategist_graph
 import threading
+from langstuff_multi_agent.agents.supervisor import create_supervisor
+from langstuff_multi_agent.config import get_llm
+from langstuff_multi_agent.config import Config
 
+config = Config()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 logger.info("Initializing primary supervisor workflow...")
 
-# Use the supervisor workflow as the main graph
-graph = supervisor_workflow
+
+def create_agent_graphs():
+    return {
+        "debugger": debugger_graph,
+        "context_manager": context_manager_graph,
+        "project_manager": project_manager_graph,
+        "professional_coach": professional_coach_graph,
+        "life_coach": life_coach_graph,
+        "coder": coder_graph,
+        "analyst": analyst_graph,
+        "researcher": researcher_graph,
+        "general_assistant": general_assistant_graph,
+        "news_reporter": news_reporter_graph,
+        "customer_support": customer_support_graph,
+        "marketing_strategist": marketing_strategist_graph
+    }
+
+
+# Replace manual supervisor setup with official pattern
+supervisor_graph = create_supervisor(
+    create_agent_graphs(),
+    getattr(config, 'configurable', {}),
+    supervisor_name="main_supervisor"
+)
 
 # Export all graphs required by langgraph.json
 __all__ = [
-    "supervisor_workflow",  # Main supervisor graph
+    "supervisor_graph",  # Renamed from supervisor_workflow
     "debugger_graph",
     "context_manager_graph",
     "project_manager_graph",
@@ -41,14 +69,24 @@ __all__ = [
     "coder_graph",
     "analyst_graph",
     "researcher_graph",
-    "general_assistant_graph"
+    "general_assistant_graph",
+    "news_reporter_graph",
+    "customer_support_graph",
+    "marketing_strategist_graph"
 ]
+
+# Add explicit graph alias for entry point
+graph = supervisor_graph
+__all__.insert(0, "graph")  # Add to beginning of exports list
 
 # Add monitoring after graph initialization
 available_agents = [  # Define available agents list
     "debugger", "context_manager", "project_manager",
     "professional_coach", "life_coach", "coder",
-    "analyst", "researcher", "general_assistant"
+    "analyst", "researcher", "general_assistant",
+    "news_reporter",
+    "customer_support",
+    "marketing_strategist"
 ]
 
 

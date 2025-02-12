@@ -11,14 +11,17 @@ from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import (
     search_web,
     job_search_tool,
-    has_tool_calls
+    has_tool_calls,
+    get_current_weather,
+    calendar_tool
 )
 from langstuff_multi_agent.config import get_llm
+from langchain_core.messages import ToolMessage
 
 professional_coach_graph = StateGraph(MessagesState)
 
 # Define the tools for professional coaching
-tools = [search_web, job_search_tool]
+tools = [search_web, job_search_tool, get_current_weather, calendar_tool]
 tool_node = ToolNode(tools)
 
 
@@ -26,15 +29,27 @@ def coach(state):
     """Provide professional coaching and career advice."""
     messages = state.get("messages", [])
     config = state.get("config", {})
-    
+
     llm = get_llm(config.get("configurable", {}))
     response = llm.invoke(messages)
-    
+
     return {"messages": messages + [response]}
 
 
 def process_tool_results(state, config):
     """Processes tool outputs and formats FINAL user response"""
+    # Add handoff command detection
+    for msg in state["messages"]:
+        if tool_calls := getattr(msg, 'tool_calls', None):
+            for tc in tool_calls:
+                if tc['name'].startswith('transfer_to_'):
+                    return {
+                        "messages": [ToolMessage(
+                            goto=tc['name'].replace('transfer_to_', ''),
+                            graph=ToolMessage.PARENT
+                        )]
+                    }
+
     last_message = state["messages"][-1]
     tool_outputs = []
 
@@ -73,7 +88,9 @@ professional_coach_graph.add_edge(START, "coach")
 
 professional_coach_graph.add_conditional_edges(
     "coach",
-    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    lambda state: (
+        "tools" if has_tool_calls(state.get("messages", [])) else "END"
+    ),
     {"tools": "tools", "END": END}
 )
 

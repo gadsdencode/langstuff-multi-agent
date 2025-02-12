@@ -57,7 +57,7 @@ def has_tool_calls(message: Dict[str, Any]) -> bool:
 # ---------------------------
 # REAL WEB SEARCH TOOL
 # ---------------------------
-@tool
+@tool(return_direct=True)
 def search_web(query: str) -> str:
     """
     Performs a real web search using SerpAPI.
@@ -258,7 +258,7 @@ def task_tracker_tool(task_details: str) -> str:
 # ---------------------------
 # JOB SEARCH TOOL (using SerpAPI for Google Jobs)
 # ---------------------------
-@tool
+@tool(return_direct=True)
 def job_search_tool(query: str) -> str:
     """
     Performs a job search using the SerpAPI Google Jobs engine.
@@ -293,7 +293,7 @@ def job_search_tool(query: str) -> str:
 # ---------------------------
 # CURRENT WEATHER TOOL (using OpenWeatherMap)
 # ---------------------------
-@tool
+@tool(return_direct=True)
 def get_current_weather(location: str) -> str:
     """
     Retrieves current weather information for a given location using the OpenWeatherMap API.
@@ -351,7 +351,7 @@ def calc_tool(expression: str) -> str:
 # ---------------------------
 # NEWS TOOL (using NewsAPI)
 # ---------------------------
-@tool
+@tool(return_direct=True)
 def news_tool(topic: str) -> str:
     """
     Retrieves news headlines for a given topic using the NewsAPI.
