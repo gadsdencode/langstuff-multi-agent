@@ -17,6 +17,8 @@ from langstuff_multi_agent.utils.tools import (
 )
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain_core.messages import ToolMessage
+import json
+from langchain.schema import SystemMessage, HumanMessage, AIMessage
 
 researcher_graph = StateGraph(MessagesState, ConfigSchema)
 
@@ -59,46 +61,64 @@ def research(state, config):
 
 
 def process_tool_results(state, config):
-    """Processes tool outputs and formats FINAL user response"""
-    # Add handoff command detection
-    for msg in state["messages"]:
-        if tool_calls := getattr(msg, 'tool_calls', None):
-            for tc in tool_calls:
-                if tc['name'].startswith('transfer_to_'):
-                    return {
-                        "messages": [ToolMessage(
-                            goto=tc['name'].replace('transfer_to_', ''),
-                            graph=ToolMessage.PARENT
-                        )]
-                    }
+    """Processes tool outputs with enhanced error handling"""
+    # Clean previous error messages
+    state["messages"] = [msg for msg in state["messages"]
+                        if not (isinstance(msg, ToolMessage) and "⚠️" in msg.content)]
 
-    last_message = state["messages"][-1]
-    tool_outputs = []
+    try:
+        # Get last tool message with content validation
+        last_tool_msg = next(msg for msg in reversed(state["messages"]) 
+                            if isinstance(msg, ToolMessage))
+        
+        # Null byte removal and encoding cleanup
+        raw_content = last_tool_msg.content
+        if not isinstance(raw_content, str):
+            raise ValueError("Non-string tool response")
+            
+        clean_content = raw_content.replace('\0', '').replace('\ufeff', '').strip()
+        if not clean_content:
+            raise ValueError("Empty content after cleaning")
 
-    if tool_calls := getattr(last_message, 'tool_calls', None):
-        for tc in tool_calls:
-            try:
-                output = f"Tool {tc['name']} result: {tc['output']}"
-                tool_outputs.append({
-                    "tool_call_id": tc["id"],
-                    "output": output
-                })
-            except Exception as e:
-                tool_outputs.append({
-                    "tool_call_id": tc["id"],
-                    "error": f"Tool execution failed: {str(e)}"
-                })
+        # Hybrid JSON/text parsing
+        if clean_content[0] in ('{', '['):
+            results = json.loads(clean_content, strict=False)
+        else:
+            results = [{"content": line} for line in clean_content.split("\n") if line.strip()]
+        
+        # Validate results structure
+        if not isinstance(results, list):
+            results = [results]
+            
+        valid_results = [
+            res for res in results[:5]
+            if isinstance(res, dict) and res.get("content")
+        ]
+        
+        if not valid_results:
+            raise ValueError("No valid research results")
 
-        return {
-            "messages": state["messages"] + [
-                {
-                    "role": "tool",
-                    "content": to["output"],
-                    "tool_call_id": to["tool_call_id"]
-                } for to in tool_outputs
-            ]
-        }
-    return state
+        # Generate summary
+        tool_outputs = [f"{res.get('title', 'Result')}: {res['content'][:200]}" for res in valid_results]
+        llm = get_llm(config.get("configurable", {}))
+        summary = llm.invoke([
+            SystemMessage(content="Synthesize these research findings:"),
+            HumanMessage(content="\n".join(tool_outputs))
+        ])
+        
+        return {"messages": [summary]}
+
+    except (json.JSONDecodeError, ValueError) as e:
+        # Fallback to raw content display
+        return {"messages": [AIMessage(
+            content=f"Research summary:\n{clean_content[:500]}",
+            additional_kwargs={"raw_data": True}
+        )]}
+
+
+def validate_result(result: dict) -> bool:
+    """Ensure research result has minimum required fields"""
+    return isinstance(result, dict) and "content" in result
 
 
 researcher_graph.add_node("research", research)
