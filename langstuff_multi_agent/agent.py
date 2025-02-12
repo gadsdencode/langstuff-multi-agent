@@ -34,18 +34,17 @@ logger.info("Initializing primary supervisor workflow...")
 
 
 def create_agent_graphs():
-    # Create compiled agent graphs with names
-    return [
-        debugger_graph.compile(name="debugger"),
-        context_manager_graph.compile(name="context_manager"),
-        project_manager_graph.compile(name="project_manager"),
-        professional_coach_graph.compile(name="professional_coach"),
-        life_coach_graph.compile(name="life_coach"),
-        coder_graph.compile(name="coder"),
-        analyst_graph.compile(name="analyst"),
-        researcher_graph.compile(name="researcher"),
-        general_assistant_graph.compile(name="general_assistant")
-    ]
+    return {
+        "debugger": debugger_graph,
+        "context_manager": context_manager_graph,
+        "project_manager": project_manager_graph,
+        "professional_coach": professional_coach_graph,
+        "life_coach": life_coach_graph,
+        "coder": coder_graph,
+        "analyst": analyst_graph,
+        "researcher": researcher_graph,
+        "general_assistant": general_assistant_graph
+    }
 
 
 # Replace manual supervisor setup with official pattern
