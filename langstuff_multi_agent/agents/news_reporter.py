@@ -15,6 +15,7 @@ from langstuff_multi_agent.utils.tools import (
 )
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain_core.messages import ToolMessage, AIMessage, SystemMessage, HumanMessage
+import json
 
 # Create state graph for the news reporter agent
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
@@ -80,7 +81,7 @@ def news_report(state, config):
 
 
 def process_tool_results(state, config):
-    """Process tool outputs and format the final news report."""
+    """Process tool outputs and format the final news report with validation."""
     # Check for handoff commands first
     for msg in state["messages"]:
         if isinstance(msg, AIMessage) and msg.tool_calls:
@@ -93,33 +94,53 @@ def process_tool_results(state, config):
                         )]
                     }
 
-    # Collect tool outputs from ToolMessages
+    # Process only the most recent tool call results
     tool_outputs = []
-    for msg in state["messages"]:
+    max_articles = 5  # Limit number of articles processed
+    
+    # Look for ToolMessages from the last tool call
+    last_tool_call_id = None
+    for msg in reversed(state["messages"]):
         if isinstance(msg, ToolMessage):
+            last_tool_call_id = msg.tool_call_id
+            break
+            
+    for msg in state["messages"]:
+        if isinstance(msg, ToolMessage) and msg.tool_call_id == last_tool_call_id:
             try:
-                # NewsAPI returns results as list of articles in content
-                articles = eval(msg.content) if isinstance(msg.content, str) else msg.content
-                for article in articles:
-                    title = article.get('title', 'No title')
-                    source = article.get('source', {}).get('name', 'Unknown')
+                # Safely parse tool output
+                articles = json.loads(msg.content) if isinstance(msg.content, str) else msg.content
+                
+                # Validate article structure
+                if not isinstance(articles, list):
+                    articles = [articles]
+                    
+                for article in articles[:max_articles]:
+                    if not all(key in article for key in ['title', 'source']):
+                        continue
+                        
+                    title = article['title'].strip()[:100]  # Limit title length
+                    source = article['source']['name'].strip() if isinstance(article['source'], dict) else str(article['source'])
                     tool_outputs.append(f"{title} ({source})")
-            except Exception as e:
-                tool_outputs.append(f"Error processing news results: {str(e)}")
+                    
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                tool_outputs.append(f"⚠️ Error processing article: {str(e)}")
+                continue
 
-    # Generate final summary only if we have outputs
+    # Generate summary only if valid outputs exist
     if tool_outputs:
         llm = get_llm(config.get("configurable", {}))
         summary = llm.invoke([
-            SystemMessage(content="Synthesize these news articles into a bulleted list:"),
-            HumanMessage(content="\n".join(tool_outputs))
+            SystemMessage(content="Synthesize these news articles into a concise bulleted list. Include source in parentheses."),
+            HumanMessage(content="\n".join(tool_outputs[:10]))  # Limit input size
         ])
         return {"messages": [summary]}
     
-    # Fallback if no results
+    # Fallback with error diagnosis
+    error_info = next((msg.content for msg in state["messages"] if isinstance(msg, ToolMessage)), "No valid news data found")
     return {
         "messages": [AIMessage(
-            content="Could not retrieve current news headlines. Please try again later."
+            content=f"News update failed. Last error: {error_info[:200]}"
         )]
     }
 
