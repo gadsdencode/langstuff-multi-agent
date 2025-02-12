@@ -84,7 +84,7 @@ def news_report(state, config):
 
 
 def process_tool_results(state, config):
-    """Process tool outputs with robust JSON validation"""
+    """Process tool outputs with hybrid JSON/text parsing"""
     # Clean previous error messages
     state["messages"] = [msg for msg in state["messages"]
                         if not (isinstance(msg, ToolMessage) and "⚠️" in msg.content)]
@@ -103,13 +103,17 @@ def process_tool_results(state, config):
         if not clean_content:
             raise ValueError("Empty content after cleaning")
 
-        # Validate JSON structure before parsing
-        if clean_content[0] not in ('{', '[') or clean_content[-1] not in ('}', ']'):
-            raise json.JSONDecodeError("Missing JSON brackets", "", 0)
+        # Attempt JSON parsing first
+        if clean_content[0] in ('{', '['):
+            articles = json.loads(clean_content, strict=False)
+        else:
+            # NEW: Handle non-JSON responses using text parsing
+            articles = [
+                {"title": line.split(" (")[0], "source": line.split("(")[-1].rstrip(")")}
+                for line in clean_content.split("\n") if " (" in line and ")" in line
+            ]
+            logger.info(f"Converted {len(articles)} text entries to structured format")
 
-        # Parse with explicit encoding
-        articles = json.loads(clean_content, strict=False)  # Allow control characters
-        
         # Convert single article to list
         if not isinstance(articles, list):
             articles = [articles]
@@ -139,10 +143,13 @@ def process_tool_results(state, config):
         return {"messages": [summary]}
 
     except json.JSONDecodeError as e:
-        logger.error(f"JSON Error: {e}\nRaw Content: {raw_content[:200]}")
+        logger.error(f"JSON Error: {e}\nFirst 200 chars: {clean_content[:200]}")
+        # NEW: Attempt text fallback
+        if "\n" in clean_content:
+            return handle_text_fallback(clean_content, config)
         return {"messages": [AIMessage(
             content=f"⚠️ News format error: {str(e)[:100]}",
-            additional_kwargs={"error": True, "raw_content": raw_content[:200]}
+            additional_kwargs={"error": True, "raw_content": clean_content[:200]}
         )]}
         
     except ValueError as e:
@@ -151,6 +158,29 @@ def process_tool_results(state, config):
             content=f"⚠️ Invalid news data: {str(e)[:100]}",
             additional_kwargs={"error": True}
         )]}
+
+def handle_text_fallback(content: str, config: dict) -> dict:
+    """Process text-based news format when JSON fails"""
+    articles = []
+    for line in content.split("\n"):
+        if " (" in line and line.endswith(")"):
+            title, source = line.rsplit(" (", 1)
+            articles.append({
+                "title": title.strip(),
+                "source": source.rstrip(")")
+            })
+    
+    if not articles:
+        raise ValueError("No parseable articles in text format")
+    
+    # Generate summary from parsed text
+    tool_outputs = [f"{art['title']} ({art['source']})" for art in articles[:5]]
+    llm = get_llm(config.get("configurable", {}))
+    summary = llm.invoke([
+        SystemMessage(content="Create concise bullet points from these articles:"),
+        HumanMessage(content="\n".join(tool_outputs))
+    ])
+    return {"messages": [summary]}
 
 def validate_article(article: dict) -> bool:
     """Strict validation for news article structure"""
