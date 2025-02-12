@@ -16,6 +16,7 @@ from langstuff_multi_agent.utils.tools import (
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain_core.messages import ToolMessage, AIMessage, SystemMessage, HumanMessage
 import json
+import logging
 
 # Create state graph for the news reporter agent
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
@@ -24,6 +25,8 @@ news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
 tools = [search_web, news_tool, calc_tool]
 tool_node = ToolNode(tools)
 
+# Configure logger
+logger = logging.getLogger(__name__)
 
 def final_response(state, config):
     """Directly return last ToolMessage for immediate responses"""
@@ -108,7 +111,18 @@ def process_tool_results(state, config):
     try:
         last_tool_msg = next(msg for msg in reversed(state["messages"]) 
                             if isinstance(msg, ToolMessage))
-        articles = json.loads(last_tool_msg.content) if isinstance(last_tool_msg.content, str) else last_tool_msg.content
+        
+        # NEW: Validate content before parsing
+        raw_content = last_tool_msg.content
+        if not raw_content or not isinstance(raw_content, str):
+            raise ValueError("Empty or non-string tool response")
+            
+        # Clean content: remove null bytes and whitespace
+        clean_content = raw_content.replace('\0', '').strip()
+        if not clean_content:
+            raise ValueError("Empty content after cleaning")
+
+        articles = json.loads(clean_content)
         
         if not isinstance(articles, list):
             articles = [articles]
@@ -124,10 +138,17 @@ def process_tool_results(state, config):
         # Rest of processing remains...
         # ... existing summary generation code ...
 
-    except (json.JSONDecodeError, KeyError, ValueError) as e:
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parse failed. Raw content: {raw_content[:200]}")
         return {"messages": [AIMessage(
-            content=f"News processing failed: {str(e)[:150]}",
-            additional_kwargs={"error": True}  # NEW: Error flag
+            content=f"News format error: {str(e)}",
+            additional_kwargs={"error": True}
+        )]}
+    except ValueError as e:
+        logger.error(f"Content validation failed: {str(e)}")
+        return {"messages": [AIMessage(
+            content=f"Invalid news data: {str(e)}",
+            additional_kwargs={"error": True}
         )]}
 
 def validate_article(article: dict) -> bool:
