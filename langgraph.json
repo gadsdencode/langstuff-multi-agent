@@ -13,7 +13,8 @@
         "coder": "./langstuff_multi_agent/agent.py:coder_graph",
         "analyst": "./langstuff_multi_agent/agent.py:analyst_graph",
         "researcher": "./langstuff_multi_agent/agent.py:researcher_graph",
-        "general_assistant": "./langstuff_multi_agent/agent.py:general_assistant_graph"
+        "general_assistant": "./langstuff_multi_agent/agent.py:general_assistant_graph",
+        "news_reporter": "./langstuff_multi_agent/agent.py:news_reporter_graph"
     },
     "agents": [
         {
@@ -75,6 +76,12 @@
             "file": "./langstuff_multi_agent/agent.py",
             "graph": "general_assistant",
             "description": "Agent for general queries and assistance."
+        },
+        {
+            "name": "NEWS_REPORTER",
+            "file": "./langstuff_multi_agent/agent.py",
+            "graph": "news_reporter",
+            "description": "Agent that searches, researches, explains and summarizes news reports."
         }
     ],
     "dependencies": [

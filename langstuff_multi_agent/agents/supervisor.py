@@ -26,6 +26,7 @@ from langstuff_multi_agent.agents.coder import coder_graph
 from langstuff_multi_agent.agents.analyst import analyst_graph
 from langstuff_multi_agent.agents.researcher import researcher_graph
 from langstuff_multi_agent.agents.general_assistant import general_assistant_graph
+from langstuff_multi_agent.agents.news_reporter import news_reporter_graph
 
 import logging
 logger = logging.getLogger(__name__)
@@ -41,7 +42,8 @@ AVAILABLE_AGENTS = [
     'coder',
     'analyst',
     'researcher',
-    'general_assistant'
+    'general_assistant',
+    'news_reporter'
 ]
 
 
@@ -133,7 +135,8 @@ def route_query(state: RouterState):
     - Project Manager: Task planning
     - Life Coach: Personal life strategies and advice
     - Professional Coach: Professional career strategies and advice
-    - General Assistant: General purpose assistant for generic requests"""
+    - General Assistant: General purpose assistant for generic requests
+    - News Reporter: News searching, reporting and summaries"""
 
     structured_llm = llm.with_structured_output(RouteDecision)
 
@@ -233,6 +236,7 @@ def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None
     builder.add_node("analyst", analyst_graph)
     builder.add_node("researcher", researcher_graph)
     builder.add_node("general_assistant", general_assistant_graph)
+    builder.add_node("news_reporter", news_reporter_graph)
     builder.add_node("process_results", process_tool_results)
     builder.add_node("end", end_state)  # Add terminal node
 
