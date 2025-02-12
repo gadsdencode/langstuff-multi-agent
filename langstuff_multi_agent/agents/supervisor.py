@@ -224,4 +224,4 @@ def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None
 
 supervisor_workflow = create_supervisor()
 
-__all__ = ["create_supervisor"]
+__all__ = ["create_supervisor", "supervisor_workflow"]

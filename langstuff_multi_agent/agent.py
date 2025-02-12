@@ -54,7 +54,7 @@ supervisor_graph = create_supervisor(
 
 # Export all graphs required by langgraph.json
 __all__ = [
-    "supervisor_workflow",  # Main supervisor graph
+    "supervisor_graph",  # Renamed from supervisor_workflow
     "debugger_graph",
     "context_manager_graph",
     "project_manager_graph",
@@ -65,6 +65,10 @@ __all__ = [
     "researcher_graph",
     "general_assistant_graph"
 ]
+
+# Add explicit graph alias for entry point
+graph = supervisor_graph
+__all__.insert(0, "graph")  # Add to beginning of exports list
 
 # Add monitoring after graph initialization
 available_agents = [  # Define available agents list
