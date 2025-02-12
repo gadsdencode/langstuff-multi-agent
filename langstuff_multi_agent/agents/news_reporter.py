@@ -131,7 +131,12 @@ def process_tool_results(state, config):
         tool_outputs = []
         for art in valid_articles:
             title = art.get('title', 'Untitled')[:100]
-            source = art.get('source', {}).get('name', 'Unknown')[:50]
+            # Handle both string and dict source formats
+            source = (
+                art['source'].get('name', 'Unknown') 
+                if isinstance(art.get('source'), dict)
+                else str(art.get('source', 'Unknown'))
+            )[:50]
             tool_outputs.append(f"{title} ({source})")
 
         llm = get_llm(config.get("configurable", {}))
@@ -160,18 +165,19 @@ def process_tool_results(state, config):
         )]}
 
 def handle_text_fallback(content: str, config: dict) -> dict:
-    """Process text-based news format when JSON fails"""
+    """Process text-based news format with source validation"""
     articles = []
     for line in content.split("\n"):
         if " (" in line and line.endswith(")"):
             title, source = line.rsplit(" (", 1)
             articles.append({
                 "title": title.strip(),
-                "source": source.rstrip(")")
+                "source": source.rstrip(")").strip()  # Store source as string
             })
     
-    if not articles:
-        raise ValueError("No parseable articles in text format")
+    # Validate at least 1 article has both fields
+    if not any(validate_article(art) for art in articles):
+        raise ValueError("No valid articles in text fallback")
     
     # Generate summary from parsed text
     tool_outputs = [f"{art['title']} ({art['source']})" for art in articles[:5]]
