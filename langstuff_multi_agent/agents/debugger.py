@@ -13,7 +13,8 @@ from langstuff_multi_agent.utils.tools import (
     python_repl,
     read_file,
     write_file,
-    has_tool_calls
+    has_tool_calls,
+    calc_tool
 )
 from langstuff_multi_agent.config import get_llm
 from langchain_core.messages import ToolMessage
@@ -21,7 +22,7 @@ from langchain_core.messages import ToolMessage
 debugger_workflow = StateGraph(MessagesState)
 
 # Define the tools available to the Debugger Agent
-tools = [search_web, python_repl, read_file, write_file]
+tools = [search_web, python_repl, read_file, write_file, calc_tool]
 tool_node = ToolNode(tools)
 
 

@@ -126,7 +126,7 @@ def route_query(state: RouterState):
     llm = get_llm(config)
     system = """You are an expert router for a multi-agent system. Analyze the user's query 
     and route to ONE specialized agent. Consider these specialties:
-    - Debugger: Code errors, troubleshooting
+    - Debugger: Code errors solutions, troubleshooting
     - Coder: Writing/explaining code
     - Analyst: Data analysis requests
     - Researcher: Fact-finding, web research, news research

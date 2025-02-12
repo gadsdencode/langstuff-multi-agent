@@ -11,7 +11,9 @@ from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import (
     search_web,
     job_search_tool,
-    has_tool_calls
+    has_tool_calls,
+    get_current_weather,
+    calendar_tool
 )
 from langstuff_multi_agent.config import get_llm
 from langchain_core.messages import ToolMessage
@@ -19,7 +21,7 @@ from langchain_core.messages import ToolMessage
 professional_coach_graph = StateGraph(MessagesState)
 
 # Define the tools for professional coaching
-tools = [search_web, job_search_tool]
+tools = [search_web, job_search_tool, get_current_weather, calendar_tool]
 tool_node = ToolNode(tools)
 
 

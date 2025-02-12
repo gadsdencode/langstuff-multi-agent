@@ -12,7 +12,8 @@ from langstuff_multi_agent.utils.tools import (
     search_web,
     news_tool,
     calc_tool,
-    has_tool_calls
+    has_tool_calls,
+    news_search
 )
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain_core.messages import ToolMessage
@@ -20,7 +21,7 @@ from langchain_core.messages import ToolMessage
 researcher_graph = StateGraph(MessagesState, ConfigSchema)
 
 # Define research tools
-tools = [search_web, news_tool, calc_tool]
+tools = [search_web, news_tool, calc_tool, news_search]
 tool_node = ToolNode(tools)
 
 
