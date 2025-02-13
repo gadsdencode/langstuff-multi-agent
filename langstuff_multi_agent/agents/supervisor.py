@@ -4,7 +4,7 @@ Supervisor Agent module for integrating and routing individual LangGraph agent w
 """
 
 from langgraph.graph import StateGraph
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langstuff_multi_agent.config import get_llm
 from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
@@ -119,7 +119,22 @@ class RouterInput(BaseModel):
 class RouteDecision(BaseModel):
     """Routing decision with chain-of-thought reasoning"""
     reasoning: str = Field(..., description="Step-by-step routing logic")
-    destination: Literal[tuple(AVAILABLE_AGENTS)] = Field(..., description="Target agent")
+    destination: Literal[
+        'debugger',
+        'context_manager',
+        'project_manager',
+        'professional_coach',
+        'life_coach',
+        'coder',
+        'analyst',
+        'researcher',
+        'general_assistant',
+        'news_reporter',
+        'customer_support',
+        'marketing_strategist',
+        'creative_content',
+        'financial_analyst'
+    ] = Field(..., description="Target agent")
 
 
 class RouterState(RouterInput):
@@ -133,15 +148,10 @@ class RouterState(RouterInput):
 
 
 def route_query(state: RouterState):
-    """Classifies and routes user queries using structured LLM output."""
-    # Access messages through Pydantic model attributes
+    """Original routing logic with complete system message"""
     latest_message = state.messages[-1].content if state.messages else ""
 
-    # Get config from model attributes instead of dict
-    config = state.configurable.dict() if state.configurable else {}
-    config["structured_output_method"] = "json_mode"
-
-    llm = get_llm(config)
+    # FULL ORIGINAL SYSTEM PROMPT
     system = """You are an expert router for a multi-agent system. Analyze the user's query 
     and route to ONE specialized agent. Consider these specialties:
     - Debugger: Code errors solutions, troubleshooting
@@ -158,27 +168,27 @@ def route_query(state: RouterState):
     - Creative Content: Creative writing, marketing copy, social media posts, or brainstorming ideas
     - Financial Analyst: Financial analysis, market data, forecasting, and investment insights"""
 
-    structured_llm = llm.with_structured_output(RouteDecision)
+    # ORIGINAL INVOCATION PATTERN
+    decision = structured_llm.invoke([
+        SystemMessage(content=system),
+        HumanMessage(content=f"Route this query: {latest_message}")
+    ])
 
-    decision = structured_llm.invoke([{
-        "role": "user",
-        "content": f"Route this query: {latest_message}"
-    }], config={"system": system})
-
-    # Use the defined constant for validation
+    # ORIGINAL VALIDATION LOGIC
     if decision.destination not in AVAILABLE_AGENTS:
-        log_agent_failure(decision.destination, latest_message)
+        logger.error(f"Invalid agent {decision.destination} selected")
         return RouterState(
             messages=state.messages,
-            reasoning="Fallback due to failure",
-            destination="general_assistant"
+            destination="general_assistant",
+            reasoning="Fallback due to invalid agent selection"
         )
-    else:
-        return RouterState(
-            messages=state.messages,
-            reasoning=decision.reasoning,
-            destination=decision.destination
-        )
+
+    return RouterState(
+        messages=state.messages,
+        destination=decision.destination,
+        reasoning=decision.reasoning,
+        memories=state.memories
+    )
 
 
 def process_tool_results(state: dict, config: dict):
