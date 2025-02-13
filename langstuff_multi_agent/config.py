@@ -26,12 +26,15 @@ from typing_extensions import TypedDict
 from langchain_core.messages import SystemMessage
 from langchain_core.runnables.config import RunnableConfig
 from pydantic import BaseModel, ValidationError
-
-# Import provider libraries.
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
-from langchain_core.language_models.chat_models import BaseChatModel
-from langstuff_multi_agent.utils.memory import LangGraphMemoryCheckpointer
+from langchain_core.language_models import (
+    chat_models as base_chat_models
+)
+from langstuff_multi_agent.utils.memory import (
+    LangGraphMemoryCheckpointer,
+    MemoryManager
+)
 
 
 class ConfigSchema(TypedDict):
@@ -103,8 +106,9 @@ class Config:
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-    # Persistent checkpointer instance
-    PERSISTENT_CHECKPOINTER = MemorySaver(max_hours=72)  # 3-day memory retention
+    # Initialize memory system
+    MEMORY_MANAGER = MemoryManager(persist_path="memory_store")
+    PERSISTENT_CHECKPOINTER: Optional[LangGraphMemoryCheckpointer] = None
 
     @classmethod
     def init_logging(cls):
@@ -127,9 +131,13 @@ class Config:
         return key
 
     @classmethod
-    def init_checkpointer(cls):
-        """No initialization needed for MemorySaver"""
-        pass
+    def init_checkpointer(cls) -> None:
+        """Initialize the persistent checkpointer with memory manager."""
+        if cls.PERSISTENT_CHECKPOINTER is None:
+            cls.PERSISTENT_CHECKPOINTER = LangGraphMemoryCheckpointer(
+                cls.MEMORY_MANAGER
+            )
+        logging.info("Memory checkpointer initialized")
 
 
 # Initialize logging immediately
@@ -267,7 +275,7 @@ def _get_cached_llm(provider: str, model_kwargs_json: str):
         raise ValueError(f"Invalid model configuration JSON: {e}")
 
 
-def get_llm(configurable: dict = {}) -> BaseChatModel:
+def get_llm(configurable: dict = {}) -> base_chat_models.BaseChatModel:
     """
     Factory function to create a language model instance based on configuration.
     Uses caching to avoid re-instantiating the LLM if the configuration hasn't changed.
