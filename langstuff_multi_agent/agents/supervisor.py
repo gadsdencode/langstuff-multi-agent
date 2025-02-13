@@ -6,7 +6,7 @@ Supervisor Agent module for integrating and routing individual LangGraph agent w
 from langgraph.graph import StateGraph
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langstuff_multi_agent.config import get_llm
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
 import re
 import uuid
@@ -126,6 +126,10 @@ class RouterState(RouterInput):
     """Combined state for routing workflow"""
     reasoning: Optional[str] = Field(None, description="Routing decision rationale")
     destination: Optional[str] = Field(None, description="Selected agent target")
+    memories: Optional[List[dict]] = Field(
+        default_factory=list,
+        description="Contextual memories from previous interactions"
+    )
 
 
 def route_query(state: RouterState):
@@ -246,16 +250,20 @@ def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None
         memories=search_memories.invoke(
             state.messages[-1].content,  # Access through model attribute
             {"configurable": state.configurable.dict() if state.configurable else {}}
-        )
+        ),
+        last_route=state.last_route,
+        reasoning=state.reasoning,
+        destination=state.destination
     ))
-    
+
     # Update route_query to handle Pydantic model
     def updated_route_query(state: RouterState):
         return RouterState(
-            messages=state.messages + state.memories,
-            last_route=state.last_route
+            messages=state.messages + (state.memories if state.memories else []),
+            last_route=state.last_route,
+            memories=state.memories  # Carry forward existing memories
         )
-    
+
     builder.add_node("route_query", updated_route_query)
     builder.add_node("debugger", debugger_graph)
     builder.add_node("context_manager", context_manager_graph)
