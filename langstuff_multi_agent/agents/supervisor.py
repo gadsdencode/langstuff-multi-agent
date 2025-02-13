@@ -130,11 +130,13 @@ class RouterState(RouterInput):
 
 def route_query(state: RouterState):
     """Classifies and routes user queries using structured LLM output."""
-    # Convert Pydantic model to dict for configurable access
-    config = {}
-    if hasattr(state, "configurable"):
-        config = state.configurable
+    # Access messages through Pydantic model attributes
+    latest_message = state.messages[-1].content if state.messages else ""
+
+    # Get config from model attributes instead of dict
+    config = state.configurable.dict() if state.configurable else {}
     config["structured_output_method"] = "json_mode"
+
     llm = get_llm(config)
     system = """You are an expert router for a multi-agent system. Analyze the user's query 
     and route to ONE specialized agent. Consider these specialties:
@@ -153,9 +155,6 @@ def route_query(state: RouterState):
     - Financial Analyst: Financial analysis, market data, forecasting, and investment insights"""
 
     structured_llm = llm.with_structured_output(RouteDecision)
-
-    # Access messages directly from Pydantic model
-    latest_message = state.messages[-1].content if state.messages else ""
 
     decision = structured_llm.invoke([{
         "role": "user",
@@ -241,21 +240,23 @@ def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None
     """Create supervisor workflow with enhanced configurability"""
     builder = StateGraph(RouterState)
 
-    # Add new memory loading node
-    builder.add_node("load_memories", lambda state: {
-        "memories": search_memories.invoke(
-            state["messages"][-1].content,
-            {"configurable": state.get("configurable", {})}
+    # Modified memory loading node
+    builder.add_node("load_memories", lambda state: RouterState(
+        messages=state.messages,
+        memories=search_memories.invoke(
+            state.messages[-1].content,  # Access through model attribute
+            {"configurable": state.configurable.dict() if state.configurable else {}}
         )
-    })
+    ))
     
-    # Modify existing route_query to use memories
-    def route_query(state):
-        memories = state.get("memories", [])
-        # Add memories to context
-        return {"messages": state["messages"] + memories}
+    # Update route_query to handle Pydantic model
+    def updated_route_query(state: RouterState):
+        return RouterState(
+            messages=state.messages + state.memories,
+            last_route=state.last_route
+        )
     
-    builder.add_node("route_query", route_query)
+    builder.add_node("route_query", updated_route_query)
     builder.add_node("debugger", debugger_graph)
     builder.add_node("context_manager", context_manager_graph)
     builder.add_node("project_manager", project_manager_graph)
