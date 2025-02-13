@@ -12,7 +12,9 @@ from langstuff_multi_agent.utils.tools import (
     search_web,
     get_current_weather,
     calendar_tool,
-    has_tool_calls
+    has_tool_calls,
+    save_memory,
+    search_memories
 )
 from langstuff_multi_agent.config import get_llm
 from langchain_core.messages import ToolMessage
@@ -20,7 +22,7 @@ from langchain_core.messages import ToolMessage
 life_coach_graph = StateGraph(MessagesState)
 
 # Define tools for life coaching
-tools = [search_web, get_current_weather, calendar_tool]
+tools = [search_web, get_current_weather, calendar_tool, save_memory, search_memories]
 tool_node = ToolNode(tools)
 
 
@@ -31,6 +33,18 @@ def life_coach(state):
 
     llm = get_llm(config.get("configurable", {}))
     response = llm.invoke(messages)
+
+    # Add lifestyle preferences from memory
+    if 'user_id' in state.get("configurable", {}):
+        preferences = search_memories.invoke(
+            "lifestyle preferences", 
+            {"configurable": state["configurable"]}
+        )
+        if preferences:
+            messages.append({
+                "role": "system",
+                "content": f"User preferences: {preferences}"
+            })
 
     return {"messages": messages + [response]}
 

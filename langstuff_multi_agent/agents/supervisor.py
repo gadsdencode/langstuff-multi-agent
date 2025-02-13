@@ -15,6 +15,7 @@ from langchain_core.messages import ToolCall
 from langchain_core.tools import BaseTool
 from typing_extensions import Annotated
 from langchain_core.tools import InjectedToolCallId
+from langstuff_multi_agent.utils.tools import search_memories
 
 # Import individual workflows.
 from langstuff_multi_agent.agents.debugger import debugger_graph
@@ -236,7 +237,20 @@ def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None
     """Create supervisor workflow with enhanced configurability"""
     builder = StateGraph(RouterState)
 
-    # Add nodes using imported compiled graphs
+    # Add new memory loading node
+    builder.add_node("load_memories", lambda state: {
+        "memories": search_memories.invoke(
+            state["messages"][-1].content,
+            {"configurable": state.get("configurable", {})}
+        )
+    })
+    
+    # Modify existing route_query to use memories
+    def route_query(state):
+        memories = state.get("memories", [])
+        # Add memories to context
+        return {"messages": state["messages"] + memories}
+    
     builder.add_node("route_query", route_query)
     builder.add_node("debugger", debugger_graph)
     builder.add_node("context_manager", context_manager_graph)
@@ -269,6 +283,7 @@ def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None
         {"route_query": "route_query", "end": "end"}
     )
 
+    builder.add_edge("load_memories", "route_query")
     builder.set_entry_point("route_query")
     return builder.compile()
 
