@@ -5,6 +5,5 @@ langchain-openai
 python-dotenv
 tavily-python
 langchain_community>=0.3.17
-langchain-chroma==0.1.2
 pypika
 embedchain

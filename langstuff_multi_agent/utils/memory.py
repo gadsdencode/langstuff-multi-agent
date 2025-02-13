@@ -1,56 +1,55 @@
-from typing import List, TypedDict, Optional
-from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings
-from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint
+from typing import List, TypedDict, Optional, Dict
 from datetime import datetime, timedelta
 from langchain_core.runnables.config import RunnableConfig
-from langchain_community.vectorstores import Chroma
+from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint
 
 
 class MemoryTriple(TypedDict):
     subject: str
     predicate: str
     object_: str
+    timestamp: str
 
 
 class MemoryManager:
     def __init__(self, persist_path: str = "memory_store"):
-        self.embeddings = OpenAIEmbeddings()
-        self.vector_store = Chroma(
-            collection_name="agent_memories",
-            embedding_function=self.embeddings,
-            persist_directory=persist_path
-        )
+        self.memories: Dict[str, List[MemoryTriple]] = {}
+        self.persist_path = persist_path
 
     def save_memory(self, user_id: str, memories: List[MemoryTriple]) -> None:
-        docs = [
-            Document(
-                page_content=f"{m['subject']} {m['predicate']} {m['object_']}",
-                metadata={
-                    "user_id": user_id,
-                    "timestamp": datetime.now().isoformat(),
-                    **m
-                }
-            ) for m in memories
-        ]
-        self.vector_store.add_documents(docs)
+        """Save memories for a user with timestamps."""
+        if user_id not in self.memories:
+            self.memories[user_id] = []
+            
+        for memory in memories:
+            memory["timestamp"] = datetime.now().isoformat()
+            self.memories[user_id].append(memory)
 
     def search_memories(
         self, user_id: str, query: str, k: int = 3
-    ) -> List[Document]:
-        return self.vector_store.similarity_search(
-            query, k=k,
-            filter={"user_id": user_id}
-        )
+    ) -> List[MemoryTriple]:
+        """Return k most recent memories for a user."""
+        if user_id not in self.memories:
+            return []
+            
+        # For now, just return the k most recent memories
+        # In a real implementation, you'd want to do semantic search
+        return sorted(
+            self.memories[user_id],
+            key=lambda x: x["timestamp"],
+            reverse=True
+        )[:k]
 
     def delete_old_memories(self, user_id: str, days: int = 30) -> None:
+        """Delete memories older than specified days."""
+        if user_id not in self.memories:
+            return
+            
         cutoff = datetime.now() - timedelta(days=days)
-        self.vector_store.delete(
-            filter={
-                "user_id": user_id,
-                "timestamp": {"$lt": cutoff.isoformat()}
-            }
-        )
+        self.memories[user_id] = [
+            m for m in self.memories[user_id]
+            if datetime.fromisoformat(m["timestamp"]) > cutoff
+        ]
 
 
 class LangGraphMemoryCheckpointer(BaseCheckpointSaver):
@@ -75,7 +74,7 @@ class LangGraphMemoryCheckpointer(BaseCheckpointSaver):
         )
         return Checkpoint(
             {
-                "memory_triples": [doc.metadata for doc in memories],
+                "memory_triples": memories,
                 "timestamp": datetime.now().isoformat()
             }
         )
@@ -96,7 +95,8 @@ class LangGraphMemoryCheckpointer(BaseCheckpointSaver):
             MemoryTriple(
                 subject=item["subject"],
                 predicate=item["predicate"],
-                object_=item["object_"]
+                object_=item["object_"],
+                timestamp=item.get("timestamp", datetime.now().isoformat())
             ) for item in checkpoint["memory_triples"]
         ]
         self.mm.save_memory(user_id, memories)
