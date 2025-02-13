@@ -6,20 +6,22 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 import uuid
 
+
 class MemoryTriple(TypedDict):
     subject: str
     predicate: str
     object_: str
+
 
 class MemoryManager:
     def __init__(self, persist_path="memory_store"):
         self.embeddings = OpenAIEmbeddings()
         self.vector_store = Chroma(
             collection_name="agent_memories",
-            embedding=self.embeddings,
+            embedding_function=self.embeddings,
             persist_directory=persist_path
         )
-        
+
     def save_memory(self, user_id: str, memories: List[MemoryTriple]):
         docs = [
             Document(
