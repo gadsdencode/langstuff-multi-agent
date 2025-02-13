@@ -31,6 +31,7 @@ from pydantic import BaseModel, ValidationError
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from langchain_core.language_models.chat_models import BaseChatModel
+from langstuff_multi_agent.utils.memory import LangGraphMemoryCheckpointer
 
 
 class ConfigSchema(TypedDict):
@@ -103,7 +104,7 @@ class Config:
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
     # Persistent checkpointer instance
-    PERSISTENT_CHECKPOINTER = MemorySaver()
+    PERSISTENT_CHECKPOINTER = MemorySaver(max_hours=72)  # 3-day memory retention
 
     @classmethod
     def init_logging(cls):
@@ -124,6 +125,11 @@ class Config:
         if not key:
             raise ValueError(f"{env_var} environment variable not set")
         return key
+
+    @classmethod
+    def init_checkpointer(cls):
+        """No initialization needed for MemorySaver"""
+        pass
 
 
 # Initialize logging immediately
@@ -286,7 +292,12 @@ def get_llm(configurable: dict = {}) -> BaseChatModel:
     try:
         # Convert model_kwargs to a JSON string for hashing
         model_kwargs_json = safe_json_dumps(model_kwargs)
-        return _get_cached_llm(provider, model_kwargs_json)
+        llm = _get_cached_llm(provider, model_kwargs_json)
+
+        # Add memory context to all LLM calls
+        return llm.with_config(
+            {"checkpointer": Config.PERSISTENT_CHECKPOINTER}
+        )
     except Exception as e:
         logging.error(f"Failed to create LLM instance: {e}")
         raise ValueError(f"Failed to create LLM instance: {e}")

@@ -110,3 +110,10 @@ def monitor_agents():
 threading.Thread(target=monitor_agents, daemon=True).start()
 
 logger.info("Primary supervisor workflow successfully initialized.")
+
+
+def handle_user_request(user_input: str, user_id: str):
+    return supervisor_graph.invoke(
+        {"messages": [("user", user_input)]},
+        config={"configurable": {"thread_id": user_id}}  # Critical for memory
+    )
