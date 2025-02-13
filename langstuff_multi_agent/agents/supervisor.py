@@ -130,8 +130,10 @@ class RouterState(RouterInput):
 
 def route_query(state: RouterState):
     """Classifies and routes user queries using structured LLM output."""
-    # Get config from state and add structured output method
-    config = getattr(state, "configurable", {})
+    # Convert Pydantic model to dict for configurable access
+    config = {}
+    if hasattr(state, "configurable"):
+        config = state.configurable
     config["structured_output_method"] = "json_mode"
     llm = get_llm(config)
     system = """You are an expert router for a multi-agent system. Analyze the user's query 
@@ -152,14 +154,17 @@ def route_query(state: RouterState):
 
     structured_llm = llm.with_structured_output(RouteDecision)
 
+    # Access messages directly from Pydantic model
+    latest_message = state.messages[-1].content if state.messages else ""
+
     decision = structured_llm.invoke([{
         "role": "user",
-        "content": f"Route this query: {state.messages[-1].content}"
+        "content": f"Route this query: {latest_message}"
     }], config={"system": system})
 
     # Use the defined constant for validation
     if decision.destination not in AVAILABLE_AGENTS:
-        log_agent_failure(decision.destination, state.messages[-1].content)
+        log_agent_failure(decision.destination, latest_message)
         return RouterState(
             messages=state.messages,
             reasoning="Fallback due to failure",
@@ -173,12 +178,15 @@ def route_query(state: RouterState):
         )
 
 
-def process_tool_results(state, config):
+def process_tool_results(state: dict, config: dict):
     """Updated to preserve final assistant messages"""
     tool_outputs = []
     final_messages = []
 
-    for msg in state["messages"]:
+    # Convert state to dict if it's a Pydantic model
+    messages = state["messages"] if isinstance(state, dict) else state.messages
+
+    for msg in messages:
         if isinstance(msg, AIMessage) and not msg.tool_calls:
             final_messages.append(msg)  # Capture final assistant response
         if tool_calls := getattr(msg, "tool_calls", None):
@@ -211,17 +219,13 @@ def process_tool_results(state, config):
 
 
 def should_continue(state: dict) -> bool:
-    """
-    Determine if the workflow should continue processing.
-
-    Returns True if there are pending tool calls or no final assistant message.
-    """
-    messages = state.get("messages", [])
+    """Determine if the workflow should continue processing."""
+    # Handle both dict and Pydantic model cases
+    messages = state.messages if hasattr(state, "messages") else state.get("messages", [])
     if not messages:
         return True
 
     last_message = messages[-1]
-    # Continue if not an AI message or has tool calls
     return not isinstance(last_message, AIMessage) or bool(getattr(last_message, "tool_calls", None))
 
 
