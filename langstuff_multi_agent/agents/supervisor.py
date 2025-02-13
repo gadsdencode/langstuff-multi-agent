@@ -6,7 +6,7 @@ Supervisor Agent module for integrating and routing individual LangGraph agent w
 from langgraph.graph import StateGraph
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langstuff_multi_agent.config import get_llm
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
 import re
 import uuid
@@ -126,6 +126,7 @@ class RouterState(RouterInput):
     """Combined state for routing workflow"""
     reasoning: Optional[str] = Field(None, description="Routing decision rationale")
     destination: Optional[str] = Field(None, description="Selected agent target")
+    memories: List[str] = Field(default_factory=list, description="Relevant memory entries")
 
 
 def route_query(state: RouterState):
@@ -169,14 +170,19 @@ def route_query(state: RouterState):
         return RouterState(
             messages=state.messages,
             reasoning=decision.reasoning,
-            destination=decision.destination
+            destination=decision.destination,
+            memories=state.memories
         )
 
 
 def process_tool_results(state, config):
-    """Updated to preserve final assistant messages"""
+    """Updated to preserve final assistant messages and show reasoning"""
     tool_outputs = []
     final_messages = []
+
+    # Add reasoning to messages if present
+    if state.get("reasoning"):
+        final_messages.append(AIMessage(content=f"Routing Reason: {state['reasoning']}"))
 
     for msg in state["messages"]:
         if isinstance(msg, AIMessage) and not msg.tool_calls:
