@@ -1,11 +1,11 @@
 langgraph>=0.0.20
 langchain-anthropic>=0.0.10
-langchain-core>=0.1.20
-langchain-openai>=0.0.5
+langchain-core==0.2.0
+langchain-openai==0.2.1
 python-dotenv>=1.0.0
 tavily-python>=0.5.1
 langchain_community>=0.3.17
-faiss-cpu>=1.7.4
 langchain-chroma==0.1.2
-chromadb==0.5.0
-pypika==9.0.0
+chromadb==0.5.10
+pypika==0.48.9
+embedchain==0.1.125
