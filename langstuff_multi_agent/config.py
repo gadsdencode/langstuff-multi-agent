@@ -18,17 +18,23 @@ logic and agent structured responses.
 
 import os
 import logging
+import json
+from functools import lru_cache, wraps
 from langgraph.checkpoint.memory import MemorySaver
-from typing import Optional, Dict, Any, Literal
+from typing import Optional, Dict, Any, Literal, Callable
 from typing_extensions import TypedDict
 from langchain_core.messages import SystemMessage
 from langchain_core.runnables.config import RunnableConfig
 from pydantic import BaseModel, ValidationError
-
-# Import provider libraries.
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
-from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.language_models import (
+    chat_models as base_chat_models
+)
+from langstuff_multi_agent.utils.memory import (
+    LangGraphMemoryCheckpointer,
+    MemoryManager
+)
 
 
 class ConfigSchema(TypedDict):
@@ -48,9 +54,31 @@ class Config:
     XAI_API_KEY = os.environ.get("XAI_API_KEY")
 
     # Default model settings
-    DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-4o")
-    DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", 0))
+    DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
+    DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", 0.4))
     DEFAULT_PROVIDER = os.environ.get("AI_PROVIDER", "openai").lower()
+
+    # Cache settings
+    LLM_CACHE_SIZE = int(os.environ.get("LLM_CACHE_SIZE", "8"))
+
+    # Track API key states for cache invalidation
+    _api_key_states = {
+        "anthropic": ANTHROPIC_API_KEY,
+        "openai": OPENAI_API_KEY,
+        "grok": XAI_API_KEY
+    }
+
+    @classmethod
+    def api_keys_changed(cls) -> bool:
+        """Check if any API keys have changed since last check."""
+        current_states = {
+            "anthropic": cls.ANTHROPIC_API_KEY,
+            "openai": cls.OPENAI_API_KEY,
+            "grok": cls.XAI_API_KEY
+        }
+        changed = current_states != cls._api_key_states
+        cls._api_key_states = current_states.copy()
+        return changed
 
     # Model configurations
     MODEL_CONFIGS = {
@@ -78,8 +106,9 @@ class Config:
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-    # Persistent checkpointer instance
-    PERSISTENT_CHECKPOINTER = MemorySaver()
+    # Initialize memory system
+    MEMORY_MANAGER = MemoryManager(persist_path="memory_store")
+    PERSISTENT_CHECKPOINTER: Optional[LangGraphMemoryCheckpointer] = None
 
     @classmethod
     def init_logging(cls):
@@ -100,6 +129,15 @@ class Config:
         if not key:
             raise ValueError(f"{env_var} environment variable not set")
         return key
+
+    @classmethod
+    def init_checkpointer(cls) -> None:
+        """Initialize the persistent checkpointer with memory manager."""
+        if cls.PERSISTENT_CHECKPOINTER is None:
+            cls.PERSISTENT_CHECKPOINTER = LangGraphMemoryCheckpointer(
+                cls.MEMORY_MANAGER
+            )
+        logging.info("Memory checkpointer initialized")
 
 
 # Initialize logging immediately
@@ -155,26 +193,122 @@ def get_model_instance(provider: str, **kwargs):
         raise ValueError(f"Unsupported provider: {provider}")
 
 
-def get_llm(configurable: dict = {}):
+class LLMCacheStats:
+    """Tracks statistics for the LLM cache."""
+    def __init__(self):
+        self.hits = 0
+        self.misses = 0
+        self.invalidations = 0
+
+    def __str__(self):
+        total = self.hits + self.misses
+        hit_rate = (self.hits / total * 100) if total > 0 else 0
+        return (
+            f"Cache Stats - Hits: {self.hits}, Misses: {self.misses}, "
+            f"Hit Rate: {hit_rate:.1f}%, Invalidations: {self.invalidations}"
+        )
+
+
+# Global cache statistics
+llm_cache_stats = LLMCacheStats()
+
+
+def safe_json_dumps(obj: Any) -> str:
+    """Safely convert object to JSON string, handling edge cases."""
+    try:
+        return json.dumps(obj, sort_keys=True)
+    except (TypeError, ValueError, OverflowError) as e:
+        logging.warning(f"JSON serialization failed: {e}. Using str representation.")
+        return str(obj)
+
+
+@lru_cache(maxsize=None)  # Size controlled by wrapper
+def _get_cached_llm_inner(provider: str, model_kwargs_json: str):
+    """Internal cached function for LLM instantiation."""
+    model_kwargs = json.loads(model_kwargs_json)
+    return get_model_instance(provider, **model_kwargs)
+
+
+def _cache_wrapper(func: Callable) -> Callable:
+    """Wrapper to add cache statistics and invalidation."""
+    cache = lru_cache(maxsize=Config.LLM_CACHE_SIZE)(func)
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # Check for API key changes
+        if Config.api_keys_changed():
+            logging.info("API keys changed - invalidating LLM cache")
+            cache.cache_clear()
+            llm_cache_stats.invalidations += 1
+
+        # Track cache statistics
+        result = cache(*args, **kwargs)
+        if hasattr(cache, 'cache_info'):
+            info = cache.cache_info()
+            llm_cache_stats.hits = info.hits
+            llm_cache_stats.misses = info.misses
+
+        return result
+
+    # Expose cache clear method
+    wrapper.cache_clear = cache.cache_clear
+    return wrapper
+
+
+@_cache_wrapper
+def _get_cached_llm(provider: str, model_kwargs_json: str):
+    """
+    Helper function that creates and caches LLM instances based on configuration.
+    Uses JSON string of model_kwargs as a hashable cache key.
+
+    Args:
+        provider: The LLM provider name
+        model_kwargs_json: JSON string of model configuration parameters
+
+    Returns:
+        Cached LLM instance
+    """
+    try:
+        return _get_cached_llm_inner(provider, model_kwargs_json)
+    except json.JSONDecodeError as e:
+        logging.error(f"Failed to decode model_kwargs_json: {e}")
+        raise ValueError(f"Invalid model configuration JSON: {e}")
+
+
+def get_llm(configurable: dict = {}) -> base_chat_models.BaseChatModel:
     """
     Factory function to create a language model instance based on configuration.
+    Uses caching to avoid re-instantiating the LLM if the configuration hasn't changed.
+
+    The cache size can be configured via the LLM_CACHE_SIZE environment variable.
+    Cache statistics are available via the llm_cache_stats global variable.
 
     Args:
         configurable: Optional configuration dictionary that can include:
                - provider: Provider name ("anthropic", "openai", "grok", etc.)
-               - system_message: Optional system message to prepend
-               - temperature: Temperature parameter for generation
-               - top_p: Top-p parameter for generation
-               - max_tokens: Maximum tokens to generate
-               - model_kwargs: Additional keyword arguments for the model (e.g., structured_output_method)
+               - model_kwargs: Additional keyword arguments for the model
 
     Returns:
-        An instance of BaseChatModel configured according to the specified parameters.
-        Note: The returned LLM instance supports structured output via .with_structured_output().
+        A cached instance of BaseChatModel configured according to the specified parameters.
+
+    Raises:
+        ValueError: If the configuration is invalid or JSON serialization fails
     """
-    provider = configurable.get('provider', 'openai')  # Set default provider
+    provider = configurable.get('provider', 'openai')
     model_kwargs = configurable.get('model_kwargs', {})
-    return get_model_instance(provider, **model_kwargs)
+
+    try:
+        # Convert model_kwargs to a JSON string for hashing
+        model_kwargs_json = safe_json_dumps(model_kwargs)
+        llm = _get_cached_llm(provider, model_kwargs_json)
+
+        # Add memory context to all LLM calls
+        return llm.with_config(
+            {"checkpointer": Config.PERSISTENT_CHECKPOINTER}
+        )
+    except Exception as e:
+        logging.error(f"Failed to create LLM instance: {e}")
+        raise ValueError(f"Failed to create LLM instance: {e}")
 
 
 def create_model_config(

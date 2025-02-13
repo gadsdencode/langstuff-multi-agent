@@ -29,6 +29,7 @@ tool_node = ToolNode(tools)
 
 logger = logging.getLogger(__name__)
 
+
 def analyze_data(state):
     """Analyze data and perform calculations."""
     messages = state.get("messages", [])
@@ -48,9 +49,9 @@ def process_tool_results(state, config):
 
     try:
         # Get last tool message with content validation
-        last_tool_msg = next(msg for msg in reversed(state["messages"]) 
+        last_tool_msg = next(msg for msg in reversed(state["messages"])
                             if isinstance(msg, ToolMessage))
-        
+
         # Clean and validate raw content
         raw_content = last_tool_msg.content
         clean_content = raw_content.replace('\0', '').replace('\ufeff', '').strip()
@@ -62,11 +63,11 @@ def process_tool_results(state, config):
             results = json.loads(clean_content, strict=False)
         else:
             results = [{"content": line} for line in clean_content.split("\n") if line.strip()]
-        
+
         # Validate and process results
         if not isinstance(results, list):
             results = [results]
-            
+
         valid_results = [
             res for res in results[:5]
             if validate_analysis_result(res)
@@ -86,7 +87,7 @@ def process_tool_results(state, config):
             SystemMessage(content="Analyze and interpret these results:"),
             HumanMessage(content="\n".join(tool_outputs))
         ])
-        
+
         return {"messages": [summary]}
 
     except (json.JSONDecodeError, ValueError) as e:
@@ -96,9 +97,11 @@ def process_tool_results(state, config):
             additional_kwargs={"raw_data": True}
         )]}
 
+
 def validate_analysis_result(result: dict) -> bool:
     """Validate analysis result structure"""
     return isinstance(result, dict) and any(key in result for key in ['content', 'value'])
+
 
 # Initialize and configure the analyst graph
 analyst_graph.add_node("analyze_data", analyze_data)

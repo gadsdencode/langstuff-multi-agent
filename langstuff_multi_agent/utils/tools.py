@@ -27,6 +27,7 @@ from typing import Dict, Any, List
 from langstuff_multi_agent.config import get_llm
 from langgraph.prebuilt import ToolNode
 from .memory import MemoryManager
+from langchain_core.runnables.config import RunnableConfig
 
 
 def has_tool_calls(message: Dict[str, Any]) -> bool:
@@ -407,7 +408,9 @@ def get_tool_node(tools: List[Any]) -> ToolNode:
             ) from e
         raise
 
+
 memory = MemoryManager()
+
 
 @tool
 def save_memory(memories: List[dict], config: RunnableConfig) -> str:
@@ -416,7 +419,8 @@ def save_memory(memories: List[dict], config: RunnableConfig) -> str:
     memory.save_memory(user_id, memories)
     return "Memories saved successfully"
 
-@tool 
+
+@tool
 def search_memories(query: str, config: RunnableConfig) -> List[str]:
     """Search long-term conversation memories"""
     user_id = config.get("configurable", {}).get("user_id", "global")

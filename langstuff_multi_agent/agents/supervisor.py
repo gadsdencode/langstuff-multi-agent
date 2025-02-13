@@ -4,8 +4,9 @@ Supervisor Agent module for integrating and routing individual LangGraph agent w
 """
 
 from langgraph.graph import StateGraph
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langstuff_multi_agent.config import get_llm
+from typing import Literal, Optional, List
 from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
 import re
@@ -119,7 +120,22 @@ class RouterInput(BaseModel):
 class RouteDecision(BaseModel):
     """Routing decision with chain-of-thought reasoning"""
     reasoning: str = Field(..., description="Step-by-step routing logic")
-    destination: Literal[tuple(AVAILABLE_AGENTS)] = Field(..., description="Target agent")
+    destination: Literal[
+        'debugger',
+        'context_manager',
+        'project_manager',
+        'professional_coach',
+        'life_coach',
+        'coder',
+        'analyst',
+        'researcher',
+        'general_assistant',
+        'news_reporter',
+        'customer_support',
+        'marketing_strategist',
+        'creative_content',
+        'financial_analyst'
+    ] = Field(..., description="Target agent")
 
 
 class RouterState(RouterInput):
@@ -130,11 +146,10 @@ class RouterState(RouterInput):
 
 
 def route_query(state: RouterState):
-    """Classifies and routes user queries using structured LLM output."""
-    # Get config from state and add structured output method
-    config = getattr(state, "configurable", {})
-    config["structured_output_method"] = "json_mode"
-    llm = get_llm(config)
+    """Original routing logic with complete system message"""
+    latest_message = state.messages[-1].content if state.messages else ""
+
+    # FULL ORIGINAL SYSTEM PROMPT
     system = """You are an expert router for a multi-agent system. Analyze the user's query 
     and route to ONE specialized agent. Consider these specialties:
     - Debugger: Code errors solutions, troubleshooting
@@ -151,20 +166,19 @@ def route_query(state: RouterState):
     - Creative Content: Creative writing, marketing copy, social media posts, or brainstorming ideas
     - Financial Analyst: Financial analysis, market data, forecasting, and investment insights"""
 
-    structured_llm = llm.with_structured_output(RouteDecision)
+    # ORIGINAL INVOCATION PATTERN
+    decision = structured_llm.invoke([
+        SystemMessage(content=system),
+        HumanMessage(content=f"Route this query: {latest_message}")
+    ])
 
-    decision = structured_llm.invoke([{
-        "role": "user",
-        "content": f"Route this query: {state.messages[-1].content}"
-    }], config={"system": system})
-
-    # Use the defined constant for validation
+    # ORIGINAL VALIDATION LOGIC
     if decision.destination not in AVAILABLE_AGENTS:
-        log_agent_failure(decision.destination, state.messages[-1].content)
+        logger.error(f"Invalid agent {decision.destination} selected")
         return RouterState(
             messages=state.messages,
-            reasoning="Fallback due to failure",
-            destination="general_assistant"
+            destination="general_assistant",
+            reasoning="Fallback due to invalid agent selection"
         )
     else:
         return RouterState(
@@ -217,17 +231,13 @@ def process_tool_results(state, config):
 
 
 def should_continue(state: dict) -> bool:
-    """
-    Determine if the workflow should continue processing.
-
-    Returns True if there are pending tool calls or no final assistant message.
-    """
-    messages = state.get("messages", [])
+    """Determine if the workflow should continue processing."""
+    # Handle both dict and Pydantic model cases
+    messages = state.messages if hasattr(state, "messages") else state.get("messages", [])
     if not messages:
         return True
 
     last_message = messages[-1]
-    # Continue if not an AI message or has tool calls
     return not isinstance(last_message, AIMessage) or bool(getattr(last_message, "tool_calls", None))
 
 
@@ -243,21 +253,27 @@ def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None
     """Create supervisor workflow with enhanced configurability"""
     builder = StateGraph(RouterState)
 
-    # Add new memory loading node
-    builder.add_node("load_memories", lambda state: {
-        "memories": search_memories.invoke(
-            state["messages"][-1].content,
-            {"configurable": state.get("configurable", {})}
+    # Modified memory loading node
+    builder.add_node("load_memories", lambda state: RouterState(
+        messages=state.messages,
+        memories=search_memories.invoke(
+            state.messages[-1].content,  # Access through model attribute
+            {"configurable": state.configurable.dict() if state.configurable else {}}
+        ),
+        last_route=state.last_route,
+        reasoning=state.reasoning,
+        destination=state.destination
+    ))
+
+    # Update route_query to handle Pydantic model
+    def updated_route_query(state: RouterState):
+        return RouterState(
+            messages=state.messages + (state.memories if state.memories else []),
+            last_route=state.last_route,
+            memories=state.memories  # Carry forward existing memories
         )
-    })
-    
-    # Modify existing route_query to use memories
-    def route_query(state):
-        memories = state.get("memories", [])
-        # Add memories to context
-        return {"messages": state["messages"] + memories}
-    
-    builder.add_node("route_query", route_query)
+
+    builder.add_node("route_query", updated_route_query)
     builder.add_node("debugger", debugger_graph)
     builder.add_node("context_manager", context_manager_graph)
     builder.add_node("project_manager", project_manager_graph)
