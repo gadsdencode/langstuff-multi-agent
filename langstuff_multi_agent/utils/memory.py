@@ -1,6 +1,6 @@
 from typing import List, TypedDict
 import os
-from langchain_community.vectorstores import FAISS, Chroma
+from langchain_community.vectorstores import Chroma
 from langchain_core.embeddings import Embeddings
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
@@ -28,14 +28,11 @@ class MemoryManager:
             ) for m in memories
         ]
         self.vector_store.add_documents(docs)
-        # Ensure directory exists before saving
-        os.makedirs(persist_path, exist_ok=True)
-        self.vector_store.persist()
 
     def search_memories(self, user_id: str, query: str, k=3) -> List[str]:
         results = self.vector_store.similarity_search(
             query, k=k,
-            filter=lambda doc: doc.metadata.get("user_id") == user_id
+            filter={"user_id": user_id}
         )
         return [f"{doc.metadata['subject']} {doc.metadata['predicate']} {doc.metadata['object_']}" 
                 for doc in results]
