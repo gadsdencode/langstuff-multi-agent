@@ -1,6 +1,6 @@
 from typing import List, TypedDict
 import os
-from langchain_chroma import Chroma
+from langchain_community.vectorstores import Chroma
 from langchain_core.embeddings import Embeddings
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
@@ -16,7 +16,7 @@ class MemoryManager:
         self.embeddings = OpenAIEmbeddings()
         self.vector_store = Chroma(
             collection_name="agent_memories",
-            embedding_function=self.embeddings,
+            embedding=self.embeddings,
             persist_directory=persist_path
         )
         

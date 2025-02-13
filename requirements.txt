@@ -5,7 +5,6 @@ langchain-openai==0.2.1
 python-dotenv>=1.0.0
 tavily-python>=0.5.1
 langchain_community>=0.3.17
-langchain-chroma==0.1.2
 chromadb==0.5.10
 pypika==0.48.9
 embedchain==0.1.125
