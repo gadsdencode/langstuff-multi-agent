@@ -32,18 +32,17 @@ logger = logging.getLogger(__name__)
 
 
 def final_response(state, config):
-    """Add completion marker to final response"""
-    for msg in reversed(state["messages"]):
-        if isinstance(msg, ToolMessage):
-            return {
-                "messages": [
-                    AIMessage(
-                        content=msg.content,
-                        additional_kwargs={"final_answer": True}  # Completion marker
-                    )
-                ]
-            }
-    return {"messages": state["messages"]}
+    """Proper tool response handling with call IDs"""
+    responses = []
+    for msg in state["messages"]:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            for tool_call in msg.tool_calls:
+                responses.append(ToolMessage(  # REQUIRED format
+                    content=msg.content,
+                    name=tool_call["name"],
+                    tool_call_id=tool_call["id"]  # Match original call ID
+                ))
+    return {"messages": responses}
 
 
 def news_should_continue(state):
@@ -55,13 +54,13 @@ def news_should_continue(state):
 
 
 def news_report(state, config):
-    """Conduct news reporting with configuration support."""
+    """Disable parallel tool calls"""
     # Merge the configuration from the state and the passed config
     state_config = state.get("configurable", {})
     if config:
         state_config.update(config.get("configurable", {}))
     llm = get_llm(state_config)
-    llm = llm.bind_tools(tools)
+    llm = llm.bind_tools(tools, parallel_tool_calls=False)  # Force sequential
     # Invoke the LLM with a system prompt tailored for a news reporter agent
     return {
         "messages": [
