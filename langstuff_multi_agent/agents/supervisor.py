@@ -19,7 +19,7 @@ from langstuff_multi_agent.utils.tools import search_memories
 import logging
 import operator
 from langchain_core.language_models.chat_models import BaseChatModel
-from langgraph.graph import Node
+from langgraph import Node
 from langgraph.graph.message import AnyMessage, add_messages
 from langgraph.prebuilt import create_react_agent
 from langchain_core.runnables import RunnableConfig
