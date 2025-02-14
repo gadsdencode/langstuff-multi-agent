@@ -263,7 +263,12 @@ class SupervisorState(TypedDict):
     error_count: Annotated[int, operator.add]  # Track consecutive errors
 
 
-def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dict) -> StateGraph:
+def create_supervisor(
+    llm: BaseChatModel,
+    members: list[str],
+    member_graphs: dict,
+    **kwargs  # Add to accept unexpected arguments
+) -> StateGraph:
     options = members + ["FINISH"]
 
     # Production-grade system prompt from LangChain docs
