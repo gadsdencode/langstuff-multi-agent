@@ -30,26 +30,42 @@ tool_node = ToolNode(tools)
 # Configure logger
 logger = logging.getLogger(__name__)
 
+
 def final_response(state, config):
-    """Directly return last ToolMessage for immediate responses"""
+    """Add completion marker to final response"""
     for msg in reversed(state["messages"]):
         if isinstance(msg, ToolMessage):
-            return {"messages": [msg]}
+            return {
+                "messages": [
+                    AIMessage(
+                        content=msg.content,
+                        additional_kwargs={"final_answer": True}  # Completion marker
+                    )
+                ]
+            }
     return {"messages": state["messages"]}
 
+
 def news_should_continue(state):
-    """Enhanced conditional routing with direct return check"""
+    """Fixed termination condition with explicit completion check"""
     messages = state.get("messages", [])
     if not messages:
         return "END"
-        
+
     last_message = messages[-1]
+
+    # Explicit completion marker check
+    if isinstance(last_message, AIMessage) and "final_answer" in last_message.additional_kwargs:
+        return "END"
+
+    # Existing tool call check
     if not getattr(last_message, "tool_calls", []):
         return "END"
 
     # Check first tool call for return_direct flag
     args = last_message.tool_calls[0].get("args", {})
     return "final" if args.get("return_direct", False) else "tools"
+
 
 def news_report(state, config):
     """Conduct news reporting with configuration support."""
@@ -95,14 +111,14 @@ def process_tool_results(state, config):
 
     try:
         # Get last tool message with content validation
-        last_tool_msg = next(msg for msg in reversed(state["messages"]) 
+        last_tool_msg = next(msg for msg in reversed(state["messages"])
                             if isinstance(msg, ToolMessage))
-        
+
         # Null byte removal and encoding cleanup
         raw_content = last_tool_msg.content
         if not isinstance(raw_content, str):
             raise ValueError("Non-string tool response")
-            
+
         clean_content = raw_content.replace('\0', '').replace('\ufeff', '').strip()
         if not clean_content:
             raise ValueError("Empty content after cleaning")
@@ -127,14 +143,14 @@ def process_tool_results(state, config):
             art for art in articles[:5]
             if validate_article(art)
         ]
-        
+
         if not valid_articles:
             raise ValueError("No valid articles after filtering")
 
         # Add memory context to articles
         if 'user_id' in config.get("configurable", {}):
             memories = search_memories.invoke(
-                "news preferences", 
+                "news preferences",
                 {"configurable": config["configurable"]}
             )
             if memories:
@@ -148,7 +164,7 @@ def process_tool_results(state, config):
             title = art.get('title', 'Untitled')[:100]
             # Handle both string and dict source formats
             source = (
-                art['source'].get('name', 'Unknown') 
+                art['source'].get('name', 'Unknown')
                 if isinstance(art.get('source'), dict)
                 else str(art.get('source', 'Unknown'))
             )[:50]
@@ -159,7 +175,7 @@ def process_tool_results(state, config):
             SystemMessage(content="Create concise bullet points from these articles:"),
             HumanMessage(content="\n".join(tool_outputs))
         ])
-        
+
         return {"messages": [summary]}
 
     except json.JSONDecodeError as e:
@@ -171,13 +187,14 @@ def process_tool_results(state, config):
             content=f"⚠️ News format error: {str(e)[:100]}",
             additional_kwargs={"error": True, "raw_content": clean_content[:200]}
         )]}
-        
+
     except ValueError as e:
         logger.error(f"Validation Error: {str(e)}")
         return {"messages": [AIMessage(
             content=f"⚠️ Invalid news data: {str(e)[:100]}",
             additional_kwargs={"error": True}
         )]}
+
 
 def handle_text_fallback(content: str, config: dict) -> dict:
     """Process text-based news format with source validation"""
@@ -189,11 +206,11 @@ def handle_text_fallback(content: str, config: dict) -> dict:
                 "title": title.strip(),
                 "source": source.rstrip(")").strip()  # Store source as string
             })
-    
+
     # Validate at least 1 article has both fields
     if not any(validate_article(art) for art in articles):
         raise ValueError("No valid articles in text fallback")
-    
+
     # Generate summary from parsed text
     tool_outputs = [f"{art['title']} ({art['source']})" for art in articles[:5]]
     llm = get_llm(config.get("configurable", {}))
@@ -202,6 +219,7 @@ def handle_text_fallback(content: str, config: dict) -> dict:
         HumanMessage(content="\n".join(tool_outputs))
     ])
     return {"messages": [summary]}
+
 
 def validate_article(article: dict) -> bool:
     """Strict validation for news article structure"""
