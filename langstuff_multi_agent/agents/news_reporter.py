@@ -4,9 +4,9 @@ News Reporter Agent module for gathering and summarizing news reports.
 
 This revised module enhances the processing of fetched news:
 1. It accumulates fetched articles in state["articles"] without reprocessing duplicate tool responses.
-2. It uses a counter (state["processed_tool_msg_count"]) to track which tool messages have been processed.
-3. It robustly parses tool responses using both JSON and plain text extraction.
-4. It generates a final summary once enough articles are accumulated or the iteration limit is reached.
+2. It tracks processed tool messages using state["processed_tool_msg_count"].
+3. It robustly parses tool responses using both JSON and regex-based extraction.
+4. It terminates the processing cycle immediately once a final summary is produced.
 """
 
 import json
@@ -64,6 +64,11 @@ def final_response(state, config):
 
 def news_should_continue(state):
     """Decide whether to continue gathering news or finalize the report."""
+    # Immediately finalize if final summary already exists
+    if state.get("final_summary"):
+        logger.info("Final summary already exists; terminating cycle.")
+        return "final"
+
     articles = state.get("articles", [])
     if state.get("iteration_count", 0) >= MAX_ITERATIONS:
         logger.info(f"Max iterations reached: {state.get('iteration_count', 0)}")
@@ -80,6 +85,11 @@ def news_should_continue(state):
 
 def news_report(state, config):
     """Initial news report node: prompt the LLM to fetch news using available tools."""
+    # If final summary exists, bypass further processing.
+    if state.get("final_summary"):
+        logger.info("Final summary exists; bypassing news_report invocation.")
+        return final_response(state, config)
+
     state["iteration_count"] = state.get("iteration_count", 0) + 1
     logger.info(f"Iteration count: {state['iteration_count']}")
     if "articles" not in state:
@@ -132,7 +142,6 @@ def extract_articles(raw_content):
     """
     articles = []
     try:
-        # Try JSON parsing
         articles = json.loads(raw_content)
         if isinstance(articles, dict):
             articles = [articles]
@@ -152,7 +161,7 @@ def process_tool_results(state, config):
     """
     Process unprocessed tool outputs:
       - Iterate over new ToolMessages (tracked via state["processed_tool_msg_count"])
-      - Extract and accumulate valid articles (avoid duplicates)
+      - Extract and accumulate valid articles (avoiding duplicates)
       - Update processed message count to prevent reprocessing
       - If enough articles or max iterations reached, generate final summary
     """
@@ -161,7 +170,7 @@ def process_tool_results(state, config):
         processed_count = state.get("processed_tool_msg_count", 0)
         new_tool_msgs = tool_msgs[processed_count:]
         logger.info(f"Processing {len(new_tool_msgs)} new tool message(s).")
-        
+
         new_articles = []
         for msg in new_tool_msgs:
             raw_content = msg_get(msg, "content", "")
@@ -173,16 +182,15 @@ def process_tool_results(state, config):
                 logger.warning("Empty tool response after cleaning; skipping.")
                 continue
             extracted = extract_articles(clean_content)
-            # Validate articles and collect valid ones
             valid_articles = [art for art in extracted if validate_article(art)]
             if valid_articles:
                 new_articles.extend(valid_articles)
             else:
                 logger.warning("No valid articles found in this tool message.")
-        
+
         # Update processed tool message count
         state["processed_tool_msg_count"] = len(tool_msgs)
-        
+
         # Accumulate new articles, avoiding duplicates
         state.setdefault("articles", [])
         existing_titles = {art["title"] for art in state["articles"]}
@@ -190,9 +198,9 @@ def process_tool_results(state, config):
             if art["title"] not in existing_titles:
                 state["articles"].append(art)
                 logger.info(f"Added article: {art['title']} from {art['source']}")
-        
+
         logger.info(f"Total accumulated articles: {len(state['articles'])}")
-        
+
         # Finalize if enough articles or max iterations reached
         if len(state.get("articles", [])) >= MAX_ARTICLES or state.get("iteration_count", 0) >= MAX_ITERATIONS:
             llm = get_llm(config.get("configurable", {}))
@@ -216,14 +224,15 @@ def process_tool_results(state, config):
                 additional_kwargs={"final_answer": True, "report_complete": True}
             )
             state["final_summary"] = final_msg
+            logger.info("Final summary generated; terminating cycle.")
             return {"messages": [final_msg]}
-        
+
         status_msg = AIMessage(
             content=f"Accumulated {len(state.get('articles', []))} valid article(s).",
             additional_kwargs={"article_count": len(state.get("articles", []))}
         )
         return {"messages": [status_msg]}
-    
+
     except Exception as e:
         logger.error(f"Processing error: {str(e)}")
         error_msg = AIMessage(
