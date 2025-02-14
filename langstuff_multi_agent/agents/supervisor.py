@@ -3,7 +3,7 @@
 Supervisor Agent module for integrating and routing individual LangGraph agent workflows.
 """
 
-from langgraph.graph import StateGraph
+from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage, BaseMessage
 from langstuff_multi_agent.config import get_llm
 from typing import Literal, Optional, List, TypedDict
@@ -20,7 +20,6 @@ import logging
 import operator
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import Node
-from langgraph.graph import END
 from langgraph.graph.message import AnyMessage, add_messages
 from langgraph.prebuilt import create_react_agent
 from langchain_core.runnables import RunnableConfig
@@ -295,7 +294,7 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
 
     # 3. Full workflow construction
     workflow = StateGraph(SupervisorState)
-    workflow.add_node("supervisor", Node(_supervisor_logic))
+    workflow.add_node("supervisor", _supervisor_logic)
     
     # Add member graphs with error boundaries
     for name in members:
