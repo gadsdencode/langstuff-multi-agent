@@ -47,7 +47,9 @@ def final_response(state, config):
 
 
 def news_should_continue(state):
-    """Enhanced termination condition"""
+    """Check article count limit"""
+    if state.get("article_count", 0) >= 3:
+        return "END"
     last_msg = state.get("messages", [-1])[-1]
     return "END" if last_msg.additional_kwargs.get("report_complete") else "tools"
 
@@ -89,7 +91,7 @@ def news_report(state, config):
 
 
 def process_tool_results(state, config):
-    """Process ALL articles before generating final summary"""
+    """Process articles with 3-item limit"""
     # Clean previous error messages
     state["messages"] = [msg for msg in state["messages"]
                         if not (isinstance(msg, ToolMessage) and "⚠️" in msg.content)]
@@ -123,14 +125,23 @@ def process_tool_results(state, config):
         if not isinstance(articles, list):
             articles = [articles]
 
-        # Process articles with validation
-        valid_articles = [
-            art for art in articles[:5]
-            if validate_article(art)
-        ]
+        # Enforce maximum 3 articles
+        MAX_ARTICLES = 3
+        valid_articles = [art for art in articles if validate_article(art)][:MAX_ARTICLES]
 
-        if not valid_articles:
-            raise ValueError("No valid articles after filtering")
+        # Track processed count in state
+        current_count = state.get("article_count", 0)
+        new_count = current_count + len(valid_articles)
+
+        # Generate summary only if under limit
+        if new_count >= MAX_ARTICLES:
+            return {
+                "messages": [AIMessage(
+                    content="✅ Reached maximum of 3 news articles",
+                    additional_kwargs={"report_complete": True}
+                )],
+                "article_count": MAX_ARTICLES  # Hard cap
+            }
 
         # Add memory context to articles
         if 'user_id' in config.get("configurable", {}):
@@ -162,15 +173,18 @@ def process_tool_results(state, config):
             ])
 
             # Add explicit termination signal
-            return {"messages": [
-                AIMessage(
-                    content=summary.content,
-                    additional_kwargs={
-                        "final_answer": True,
-                        "report_complete": True  # New clear completion flag
-                    }
-                )
-            ]}
+            return {
+                "messages": [
+                    AIMessage(
+                        content=summary.content,
+                        additional_kwargs={
+                            "final_answer": True,
+                            "report_complete": True  # New clear completion flag
+                        }
+                    )
+                ],
+                "article_count": new_count  # Update state
+            }
 
         except Exception as e:
             logger.error(f"Summarization failed: {str(e)}")
