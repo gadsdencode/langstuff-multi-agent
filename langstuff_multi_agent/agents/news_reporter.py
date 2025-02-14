@@ -104,7 +104,7 @@ def news_report(state, config):
 
 
 def process_tool_results(state, config):
-    """Process tool outputs with hybrid JSON/text parsing"""
+    """Process ALL articles before generating final summary"""
     # Clean previous error messages
     state["messages"] = [msg for msg in state["messages"]
                         if not (isinstance(msg, ToolMessage) and "⚠️" in msg.content)]
@@ -158,25 +158,41 @@ def process_tool_results(state, config):
                     content=f"User preferences context: {memories}"
                 ))
 
-        # Generate summary
-        tool_outputs = []
-        for art in valid_articles:
-            title = art.get('title', 'Untitled')[:100]
-            # Handle both string and dict source formats
-            source = (
-                art['source'].get('name', 'Unknown')
-                if isinstance(art.get('source'), dict)
-                else str(art.get('source', 'Unknown'))
-            )[:50]
-            tool_outputs.append(f"{title} ({source})")
+        # Generate comprehensive summary
+        try:
+            bullet_points = "\n".join([
+                f"- {art['title']} ({art['source']})"
+                for art in valid_articles[:5]
+            ])
 
-        llm = get_llm(config.get("configurable", {}))
-        summary = llm.invoke([
-            SystemMessage(content="Create concise bullet points from these articles:"),
-            HumanMessage(content="\n".join(tool_outputs))
-        ])
+            # Use structured prompt from Medium article
+            llm = get_llm(config.get("configurable", {}))
+            summary = llm.invoke([
+                SystemMessage(content=(
+                    "Create a CONCISE news briefing with proper attribution:\n"
+                    "1. Start with overarching theme\n"
+                    "2. Group related stories\n"
+                    "3. Cite sources in (parentheses)\n"
+                    "4. End with offering more details"
+                )),
+                HumanMessage(content=bullet_points)
+            ])
 
-        return {"messages": [summary]}
+            # Add completion marker and return single message
+            summary.content += "\n[END OF NEWS BRIEF]"
+            return {"messages": [
+                AIMessage(
+                    content=summary.content,
+                    additional_kwargs={"final_answer": True}
+                )
+            ]}
+
+        except Exception as e:
+            logger.error(f"Summarization failed: {str(e)}")
+            return {"messages": [AIMessage(
+                content="⚠️ News summary generation error",
+                additional_kwargs={"error": True}
+            )]}
 
     except json.JSONDecodeError as e:
         logger.error(f"JSON Error: {e}\nFirst 200 chars: {clean_content[:200]}")
