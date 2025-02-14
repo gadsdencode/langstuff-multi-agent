@@ -154,7 +154,7 @@ class RouterState(RouterInput):
 def route_query(state: RouterState):
     """Original routing logic with complete system message"""
     structured_llm = get_llm().bind_tools([RouteDecision])  # <-- INIT HERE
-    
+
     latest_message = state.messages[-1].content if state.messages else ""
 
     # FULL ORIGINAL SYSTEM PROMPT
@@ -262,9 +262,10 @@ class SupervisorState(TypedDict):
     next: str
     error_count: Annotated[int, operator.add]  # Track consecutive errors
 
+
 def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dict) -> StateGraph:
     options = members + ["FINISH"]
-    
+
     # Production-grade system prompt from LangChain docs
     system_prompt = """You manage these workers: {members}. Strict rules:
 1. Route complex queries through multiple agents sequentially
@@ -280,7 +281,7 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
             # Error recovery logic
             if state.get("error_count", 0) > 2:
                 return {"next": "debugger", "error_count": 0}
-                
+
             return llm.with_structured_output(Router).invoke(
                 [
                     SystemMessage(content=system_prompt),
@@ -294,14 +295,14 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
     # 3. Full workflow construction
     workflow = StateGraph(SupervisorState)
     workflow.add_node("supervisor", _supervisor_logic)
-    
+
     # Add member graphs with error boundaries
     for name in members:
         workflow.add_node(
             name,
-            member_graphs[name].with_retry(  # Requires member_graphs import
+            member_graphs[name].with_retry(
                 stop_after_attempt=2,
-                before=lambda _: logger.info("Retrying agent...")
+                before_sleep=lambda _: logger.info("Retrying agent...")
             )
         )
 
@@ -314,13 +315,14 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
             "debugger": "debugger"
         }
     )
-    
+
     # 5. Complete circular workflow
     for member in members:
         workflow.add_edge(member, "supervisor")
-    
+
     workflow.set_entry_point("supervisor")
     return workflow
+
 
 # 6. Proper initialization with member graphs (REQUIRED)
 member_graphs = {
