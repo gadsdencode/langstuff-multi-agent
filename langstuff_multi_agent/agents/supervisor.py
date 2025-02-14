@@ -302,7 +302,7 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
             name,
             member_graphs[name].with_retry(
                 stop_after_attempt=2,
-                before_sleep=lambda _: logger.info("Retrying agent...")
+                wait_exponential_jitter=True
             )
         )
 
