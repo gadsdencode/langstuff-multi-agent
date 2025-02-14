@@ -46,11 +46,21 @@ def final_response(state, config):
 
 
 def news_should_continue(state):
-    """Check article count limit"""
+    """Determine if news gathering should continue or end"""
+    # Check article count limit
     if state.get("article_count", 0) >= 3:
-        return "END"
-    last_msg = state.get("messages", [-1])[-1]
-    return "END" if last_msg.additional_kwargs.get("report_complete") else "tools"
+        return "final"  # Go to final summary when limit reached
+    
+    # Check for completion flag
+    last_msg = state.get("messages", [])[-1]
+    if getattr(last_msg, "additional_kwargs", {}).get("report_complete"):
+        return "END"  # End if report is complete
+        
+    # Check for final answer
+    if getattr(last_msg, "additional_kwargs", {}).get("final_answer"):
+        return "END"  # End if we have a final answer
+        
+    return "tools"  # Continue gathering news otherwise
 
 
 def news_report(state, config):
@@ -90,7 +100,7 @@ def news_report(state, config):
 
 
 def process_tool_results(state, config):
-    """Process articles with 3-item limit"""
+    """Process articles and generate final summary when ready"""
     # Clean previous error messages
     state["messages"] = [msg for msg in state["messages"]
                         if not (isinstance(msg, ToolMessage) and "⚠️" in msg.content)]
@@ -100,7 +110,7 @@ def process_tool_results(state, config):
         last_tool_msg = next(msg for msg in reversed(state["messages"])
                             if isinstance(msg, ToolMessage))
 
-        # Null byte removal and encoding cleanup
+        # Clean and parse content
         raw_content = last_tool_msg.content
         if not isinstance(raw_content, str):
             raise ValueError("Non-string tool response")
@@ -109,105 +119,79 @@ def process_tool_results(state, config):
         if not clean_content:
             raise ValueError("Empty content after cleaning")
 
-        # Attempt JSON parsing first
+        # Parse articles
         if clean_content[0] in ('{', '['):
-            articles = json.loads(clean_content, strict=False)
+            articles = json.loads(clean_content)
         else:
-            # NEW: Handle non-JSON responses using text parsing
+            # Handle non-JSON responses
             articles = [
                 {"title": line.split(" (")[0], "source": line.split("(")[-1].rstrip(")")}
                 for line in clean_content.split("\n") if " (" in line and ")" in line
             ]
-            logger.info(f"Converted {len(articles)} text entries to structured format")
 
         # Convert single article to list
         if not isinstance(articles, list):
             articles = [articles]
 
-        # Enforce maximum 3 articles
+        # Validate and limit articles
         MAX_ARTICLES = 3
         valid_articles = [art for art in articles if validate_article(art)][:MAX_ARTICLES]
 
-        # Track processed count in state
+        # Track processed count
         current_count = state.get("article_count", 0)
         new_count = current_count + len(valid_articles)
 
-        # Generate summary only if under limit
+        # Generate final summary if we have enough articles
         if new_count >= MAX_ARTICLES:
-            return {
-                "messages": [AIMessage(
-                    content="✅ Reached maximum of 3 news articles",
-                    additional_kwargs={"report_complete": True}
-                )],
-                "article_count": MAX_ARTICLES  # Hard cap
-            }
-
-        # Add memory context to articles
-        if 'user_id' in config.get("configurable", {}):
-            memories = search_memories.invoke(
-                "news preferences",
-                {"configurable": config["configurable"]}
-            )
-            if memories:
-                state["messages"].append(AIMessage(
-                    content=f"User preferences context: {memories}"
-                ))
-
-        # Generate comprehensive summary
-        try:
-            # Consolidated summary generation with termination marker
             llm = get_llm(config.get("configurable", {}))
             summary = llm.invoke([
                 SystemMessage(content=(
-                    "Compile a FINAL news report with:\n"
+                    "Create a FINAL news summary with:\n"
                     "1. Clear section headers\n"
                     "2. Bullet-point summaries\n"
-                    "3. Source attribution in (parentheses)\n"
-                    "4. Closing offer for follow-up"
+                    "3. Source attribution\n"
+                    "4. Concluding remarks"
                 )),
                 HumanMessage(content="\n".join(
                     f"{art['title']} ({art['source']})"
-                    for art in valid_articles[:5]
+                    for art in valid_articles
                 ))
             ])
-
-            # Add explicit termination signal
+            
             return {
                 "messages": [
                     AIMessage(
                         content=summary.content,
                         additional_kwargs={
                             "final_answer": True,
-                            "report_complete": True  # New clear completion flag
+                            "report_complete": True
                         }
                     )
                 ],
-                "article_count": new_count  # Update state
+                "article_count": MAX_ARTICLES
             }
 
-        except Exception as e:
-            logger.error(f"Summarization failed: {str(e)}")
-            return {"messages": [AIMessage(
-                content="⚠️ News summary generation error",
-                additional_kwargs={"error": True}
-            )]}
+        # Otherwise return processed articles
+        return {
+            "messages": [
+                AIMessage(
+                    content=f"Found {len(valid_articles)} new articles",
+                    additional_kwargs={"article_count": new_count}
+                )
+            ],
+            "article_count": new_count
+        }
 
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON Error: {e}\nFirst 200 chars: {clean_content[:200]}")
-        # NEW: Attempt text fallback
-        if "\n" in clean_content:
-            return handle_text_fallback(clean_content, config)
-        return {"messages": [AIMessage(
-            content=f"⚠️ News format error: {str(e)[:100]}",
-            additional_kwargs={"error": True, "raw_content": clean_content[:200]}
-        )]}
-
-    except ValueError as e:
-        logger.error(f"Validation Error: {str(e)}")
-        return {"messages": [AIMessage(
-            content=f"⚠️ Invalid news data: {str(e)[:100]}",
-            additional_kwargs={"error": True}
-        )]}
+    except Exception as e:
+        logger.error(f"Processing error: {str(e)}")
+        return {
+            "messages": [
+                AIMessage(
+                    content=f"Error processing news: {str(e)}",
+                    additional_kwargs={"error": True}
+                )
+            ]
+        }
 
 
 def handle_text_fallback(content: str, config: dict) -> dict:
@@ -264,3 +248,4 @@ news_reporter_graph.add_edge("process_results", "news_report")
 news_reporter_graph = news_reporter_graph.compile()
 
 __all__ = ["news_reporter_graph"]
+
