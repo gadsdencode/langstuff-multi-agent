@@ -6,7 +6,8 @@ This revised module fixes issues in the original implementation:
 1. It accumulates fetched articles in state["articles"] rather than relying solely on a numeric count.
 2. It uses explicit, well-formed message objects for LLM invocations.
 3. It robustly parses tool responses (JSON or text fallback) and generates a final summary when enough articles are gathered.
-4. It introduces a helper function to safely access message attributes, fixing the AttributeError.
+4. It introduces a helper function to safely access message attributes.
+5. It now includes an iteration counter to prevent infinite loops and force finalization.
 """
 
 import json
@@ -23,13 +24,11 @@ from langstuff_multi_agent.utils.tools import (
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain_core.messages import ToolMessage, AIMessage, SystemMessage, HumanMessage
 
-
 # Helper function to safely get an attribute from a message object or dictionary
 def msg_get(msg, key, default=None):
     if isinstance(msg, dict):
         return msg.get(key, default)
     return getattr(msg, key, default)
-
 
 # Create state graph for the news reporter agent
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
@@ -43,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 MAX_ARTICLES = 3
-
+MAX_ITERATIONS = 5  # Force finalization after a set number of cycles
 
 def final_response(state, config):
     """Return the final summary message with proper tool call IDs if present."""
@@ -65,10 +64,12 @@ def final_response(state, config):
                 )
     return {"messages": responses}
 
-
 def news_should_continue(state):
     """Decide whether to continue gathering news or finalize the report."""
     articles = state.get("articles", [])
+    # Force finalization if max iterations reached
+    if state.get("iteration_count", 0) >= MAX_ITERATIONS:
+        return "final"
     if len(articles) >= MAX_ARTICLES:
         return "final"
     # Check if last message flags completion
@@ -79,9 +80,10 @@ def news_should_continue(state):
         return "END"
     return "tools"
 
-
 def news_report(state, config):
     """Initial news report node: prompt the LLM to fetch news using available tools."""
+    # Increment iteration counter to avoid infinite loops
+    state["iteration_count"] = state.get("iteration_count", 0) + 1
     # Ensure the state has an articles accumulator list
     if "articles" not in state:
         state["articles"] = []
@@ -100,6 +102,7 @@ def news_report(state, config):
             user_query = msg_get(msg, "content")
             break
 
+    # Updated prompt explicitly instructs JSON output for articles.
     prompt = [
         SystemMessage(content=(
             "You are a News Reporter Agent. Your task is to gather and report "
@@ -112,9 +115,12 @@ def news_report(state, config):
             "- search_memories: To retrieve saved information.\n\n"
             "Instructions:\n"
             "1. Analyze the user's query and fetch news articles accordingly.\n"
-            "2. Return a structured list of articles in JSON format with 'title' and 'source' keys.\n"
-            "3. If unable to produce JSON, format each article as: 'Article Title (Source)'.\n"
-            "4. Accumulate articles until you have at least three valid ones."
+            "2. Return a structured JSON list of articles. Each article must be an object "
+            "with 'title' and 'source' keys. For example: "
+            '[{"title": "Example News Title", "source": "Example Source"}].\n'
+            "3. If unable to produce JSON, output each article as: 'Article Title (Source)'.\n"
+            "4. Accumulate articles until you have at least three valid ones, or until "
+            "the iteration limit is reached."
         )),
         HumanMessage(content=f"User query: {user_query}")
     ]
@@ -123,7 +129,6 @@ def news_report(state, config):
     # Append LLM response to state
     state.setdefault("messages", []).append(response)
     return {"messages": [response]}
-
 
 def process_tool_results(state, config):
     """Process tool outputs: parse fetched articles, accumulate them, and generate a final summary if ready."""
@@ -171,8 +176,8 @@ def process_tool_results(state, config):
             if art["title"] not in existing_titles:
                 state["articles"].append(art)
 
-        # If we have enough articles, generate the final summary
-        if len(state["articles"]) >= MAX_ARTICLES:
+        # If we have enough articles or reached max iterations, generate the final summary
+        if len(state["articles"]) >= MAX_ARTICLES or state.get("iteration_count", 0) >= MAX_ITERATIONS:
             llm = get_llm(config.get("configurable", {}))
             summary_response = llm.invoke([
                 SystemMessage(content=(
@@ -208,7 +213,6 @@ def process_tool_results(state, config):
         )
         return {"messages": [error_msg]}
 
-
 def validate_article(article: dict) -> bool:
     """Ensure the article has a valid title and source."""
     return (
@@ -216,7 +220,6 @@ def validate_article(article: dict) -> bool:
         all(key in article and isinstance(article[key], str) for key in ['title', 'source']) and
         len(article.get('title', '')) >= 10
     )
-
 
 def handle_text_fallback(content: str, config: dict) -> dict:
     """Fallback processing if tool output is plain text."""
@@ -237,7 +240,6 @@ def handle_text_fallback(content: str, config: dict) -> dict:
         HumanMessage(content="\n".join(f"{art['title']} ({art['source']})" for art in articles[:5]))
     ])
     return {"messages": [summary]}
-
 
 # Configure the state graph for the news reporter agent
 news_reporter_graph.add_node("news_report", news_report)
