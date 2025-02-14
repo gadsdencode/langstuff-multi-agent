@@ -2,16 +2,16 @@
 """
 News Reporter Agent module for gathering and summarizing news reports.
 
-This revised module fixes issues in the original implementation:
-1. It accumulates fetched articles in state["articles"] rather than relying solely on a numeric count.
-2. It uses explicit, well-formed message objects for LLM invocations.
-3. It robustly parses tool responses (JSON or text fallback) and generates a final summary when enough articles are gathered.
-4. It introduces a helper function to safely access message attributes.
-5. It now includes an iteration counter to prevent infinite loops and force finalization.
+This revised module enhances the processing of fetched news:
+1. It accumulates fetched articles in state["articles"] without reprocessing duplicate tool responses.
+2. It uses a counter (state["processed_tool_msg_count"]) to track which tool messages have been processed.
+3. It robustly parses tool responses using both JSON and plain text extraction.
+4. It generates a final summary once enough articles are accumulated or the iteration limit is reached.
 """
 
 import json
 import logging
+import re
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import (
@@ -46,11 +46,9 @@ MAX_ITERATIONS = 5  # Force finalization after a set number of cycles
 
 def final_response(state, config):
     """Return the final summary message with proper tool call IDs if present."""
-    # If the final summary is already generated in state["final_summary"], use it.
     final_msg = state.get("final_summary")
     if final_msg:
         return {"messages": [final_msg]}
-    # Fallback: return all messages with tool call references
     responses = []
     for msg in state.get("messages", []):
         if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
@@ -67,12 +65,12 @@ def final_response(state, config):
 def news_should_continue(state):
     """Decide whether to continue gathering news or finalize the report."""
     articles = state.get("articles", [])
-    # Force finalization if max iterations reached
     if state.get("iteration_count", 0) >= MAX_ITERATIONS:
+        logger.info(f"Max iterations reached: {state.get('iteration_count', 0)}")
         return "final"
     if len(articles) >= MAX_ARTICLES:
+        logger.info(f"Enough articles gathered: {len(articles)}")
         return "final"
-    # Check if last message flags completion
     last_msg = state.get("messages", [])[-1] if state.get("messages") else None
     if last_msg and getattr(last_msg, "additional_kwargs", {}).get("report_complete"):
         return "END"
@@ -82,27 +80,25 @@ def news_should_continue(state):
 
 def news_report(state, config):
     """Initial news report node: prompt the LLM to fetch news using available tools."""
-    # Increment iteration counter to avoid infinite loops
     state["iteration_count"] = state.get("iteration_count", 0) + 1
-    # Ensure the state has an articles accumulator list
+    logger.info(f"Iteration count: {state['iteration_count']}")
     if "articles" not in state:
         state["articles"] = []
-    # Merge configuration
+    # Initialize processed tool message count if not present
+    if "processed_tool_msg_count" not in state:
+        state["processed_tool_msg_count"] = 0
     state_config = state.get("configurable", {})
     if config:
         state_config.update(config.get("configurable", {}))
     llm = get_llm(state_config)
-    # Bind tools with sequential (non-parallel) calls
     llm = llm.bind_tools(tools, parallel_tool_calls=False)
 
-    # Prepare the prompt – include user query if available
     user_query = ""
     for msg in state.get("messages", []):
         if msg_get(msg, "role") == "user":
             user_query = msg_get(msg, "content")
             break
 
-    # Updated prompt explicitly instructs JSON output for articles.
     prompt = [
         SystemMessage(content=(
             "You are a News Reporter Agent. Your task is to gather and report "
@@ -126,70 +122,94 @@ def news_report(state, config):
     ]
 
     response = llm.invoke(state.get("messages", []) + prompt)
-    # Append LLM response to state
     state.setdefault("messages", []).append(response)
     return {"messages": [response]}
 
-def process_tool_results(state, config):
-    """Process tool outputs: parse fetched articles, accumulate them, and generate a final summary if ready."""
+def extract_articles(raw_content):
+    """
+    Extract valid articles from raw content.
+    Attempts JSON parsing first; if that fails, falls back to line parsing with regex.
+    """
+    articles = []
     try:
-        # Attempt to extract tool response from the latest messages
+        # Try JSON parsing
+        articles = json.loads(raw_content)
+        if isinstance(articles, dict):
+            articles = [articles]
+    except json.JSONDecodeError:
+        # Fallback: use regex to extract lines like "Some Title (Some Source)"
+        pattern = re.compile(r"(.+?)\s*\((.+?)\)\s*$")
+        for line in raw_content.splitlines():
+            match = pattern.search(line.strip())
+            if match:
+                articles.append({
+                    "title": match.group(1).strip(),
+                    "source": match.group(2).strip()
+                })
+    return articles
+
+def process_tool_results(state, config):
+    """
+    Process unprocessed tool outputs:
+      - Iterate over new ToolMessages (tracked via state["processed_tool_msg_count"])
+      - Extract and accumulate valid articles (avoid duplicates)
+      - Update processed message count to prevent reprocessing
+      - If enough articles or max iterations reached, generate final summary
+    """
+    try:
         tool_msgs = [msg for msg in state.get("messages", []) if isinstance(msg, ToolMessage)]
-        raw_content = None
-        if tool_msgs:
-            raw_content = tool_msgs[-1].content
-        else:
-            # Fallback: if no ToolMessage exists, use the latest AIMessage content
-            raw_content = msg_get(state.get("messages", [])[-1], "content", "")
-
-        if not isinstance(raw_content, str):
-            raise ValueError("Tool response is not a string")
-
-        clean_content = raw_content.replace('\0', '').replace('\ufeff', '').strip()
-        if not clean_content:
-            raise ValueError("Empty tool response after cleaning")
-
-        # Parse articles: try JSON first, then fallback to line parsing
-        if clean_content[0] in ('{', '['):
-            articles = json.loads(clean_content)
-            if isinstance(articles, dict):
-                articles = [articles]
-        else:
-            articles = []
-            for line in clean_content.split("\n"):
-                if " (" in line and line.endswith(")"):
-                    title, source = line.rsplit(" (", 1)
-                    articles.append({
-                        "title": title.strip(),
-                        "source": source.rstrip(")").strip()
-                    })
-        # Validate articles using the helper below and accumulate valid ones
-        valid_articles = [art for art in articles if validate_article(art)]
-        if not valid_articles:
-            raise ValueError("No valid articles found in the tool response")
-
-        # Accumulate articles in state
+        processed_count = state.get("processed_tool_msg_count", 0)
+        new_tool_msgs = tool_msgs[processed_count:]
+        logger.info(f"Processing {len(new_tool_msgs)} new tool message(s).")
+        
+        new_articles = []
+        for msg in new_tool_msgs:
+            raw_content = msg_get(msg, "content", "")
+            if not isinstance(raw_content, str):
+                logger.warning("Tool message content is not a string; skipping.")
+                continue
+            clean_content = raw_content.replace('\0', '').replace('\ufeff', '').strip()
+            if not clean_content:
+                logger.warning("Empty tool response after cleaning; skipping.")
+                continue
+            extracted = extract_articles(clean_content)
+            # Validate articles and collect valid ones
+            valid_articles = [art for art in extracted if validate_article(art)]
+            if valid_articles:
+                new_articles.extend(valid_articles)
+            else:
+                logger.warning("No valid articles found in this tool message.")
+        
+        # Update processed tool message count
+        state["processed_tool_msg_count"] = len(tool_msgs)
+        
+        # Accumulate new articles, avoiding duplicates
         state.setdefault("articles", [])
-        # Avoid duplicates by checking titles
         existing_titles = {art["title"] for art in state["articles"]}
-        for art in valid_articles:
+        for art in new_articles:
             if art["title"] not in existing_titles:
                 state["articles"].append(art)
-
-        # If we have enough articles or reached max iterations, generate the final summary
-        if len(state["articles"]) >= MAX_ARTICLES or state.get("iteration_count", 0) >= MAX_ITERATIONS:
+                logger.info(f"Added article: {art['title']} from {art['source']}")
+        
+        logger.info(f"Total accumulated articles: {len(state['articles'])}")
+        
+        # Finalize if enough articles or max iterations reached
+        if len(state.get("articles", [])) >= MAX_ARTICLES or state.get("iteration_count", 0) >= MAX_ITERATIONS:
             llm = get_llm(config.get("configurable", {}))
+            if state.get("articles"):
+                content = "\n".join(
+                    f"{art['title']} ({art['source']})" for art in state["articles"][:MAX_ARTICLES]
+                )
+            else:
+                content = "No valid news articles were found for the query."
             summary_response = llm.invoke([
                 SystemMessage(content=(
                     "Create a FINAL news summary that includes:\n"
                     "1. Clear section headers\n"
-                    "2. Bullet-point summaries for each article\n"
-                    "3. Source attribution\n"
-                    "4. Concluding remarks"
+                    "2. Bullet-point summaries for the news (or a note that no articles were found)\n"
+                    "3. Concluding remarks"
                 )),
-                HumanMessage(content="\n".join(
-                    f"{art['title']} ({art['source']})" for art in state["articles"][:MAX_ARTICLES]
-                ))
+                HumanMessage(content=content)
             ])
             final_msg = AIMessage(
                 content=summary_response.content,
@@ -197,14 +217,13 @@ def process_tool_results(state, config):
             )
             state["final_summary"] = final_msg
             return {"messages": [final_msg]}
-
-        # Otherwise, report the count of accumulated articles and continue
+        
         status_msg = AIMessage(
-            content=f"Accumulated {len(state['articles'])} valid article(s).",
-            additional_kwargs={"article_count": len(state["articles"])}
+            content=f"Accumulated {len(state.get('articles', []))} valid article(s).",
+            additional_kwargs={"article_count": len(state.get("articles", []))}
         )
         return {"messages": [status_msg]}
-
+    
     except Exception as e:
         logger.error(f"Processing error: {str(e)}")
         error_msg = AIMessage(
@@ -223,17 +242,9 @@ def validate_article(article: dict) -> bool:
 
 def handle_text_fallback(content: str, config: dict) -> dict:
     """Fallback processing if tool output is plain text."""
-    articles = []
-    for line in content.split("\n"):
-        if " (" in line and line.endswith(")"):
-            title, source = line.rsplit(" (", 1)
-            articles.append({
-                "title": title.strip(),
-                "source": source.rstrip(")").strip()
-            })
+    articles = extract_articles(content)
     if not any(validate_article(art) for art in articles):
         raise ValueError("No valid articles in text fallback")
-
     llm = get_llm(config.get("configurable", {}))
     summary = llm.invoke([
         SystemMessage(content="Create concise bullet points for these articles:"),
