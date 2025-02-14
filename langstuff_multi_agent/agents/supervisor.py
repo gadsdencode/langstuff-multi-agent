@@ -216,9 +216,9 @@ def process_tool_results(state, config):
                         goto=tc['name'].replace('transfer_to_', ''),
                         graph=ToolMessage.PARENT
                     )]}
-                # Existing tool processing logic
+                # Ensure every tool call gets a response
                 try:
-                    output = f"Tool {tc['name']} result: {tc['output']}"
+                    output = f"Tool {tc['name']} result: {tc.get('output', '')}"
                     tool_outputs.append({
                         "tool_call_id": tc["id"],
                         "output": output
@@ -226,14 +226,16 @@ def process_tool_results(state, config):
                 except Exception as e:
                     tool_outputs.append({
                         "tool_call_id": tc["id"],
-                        "error": str(e)
+                        "output": f"Error: {str(e)}"  # Still provide a response on error
                     })
 
     return {
         "messages": [
             *final_messages,  # Preserve final responses
-            *[ToolMessage(content=to["output"], tool_call_id=to["tool_call_id"]) 
-              for to in tool_outputs]
+            *[ToolMessage(
+                content=to["output"],
+                tool_call_id=to["tool_call_id"]
+            ) for to in tool_outputs]
         ]
     }
 
