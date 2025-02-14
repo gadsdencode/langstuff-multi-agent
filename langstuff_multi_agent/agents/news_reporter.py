@@ -6,6 +6,7 @@ This revised module fixes issues in the original implementation:
 1. It accumulates fetched articles in state["articles"] rather than relying solely on a numeric count.
 2. It uses explicit, well-formed message objects for LLM invocations.
 3. It robustly parses tool responses (JSON or text fallback) and generates a final summary when enough articles are gathered.
+4. It introduces a helper function to safely access message attributes, fixing the AttributeError.
 """
 
 import json
@@ -21,6 +22,14 @@ from langstuff_multi_agent.utils.tools import (
 )
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain_core.messages import ToolMessage, AIMessage, SystemMessage, HumanMessage
+
+
+# Helper function to safely get an attribute from a message object or dictionary
+def msg_get(msg, key, default=None):
+    if isinstance(msg, dict):
+        return msg.get(key, default)
+    return getattr(msg, key, default)
+
 
 # Create state graph for the news reporter agent
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
@@ -87,8 +96,8 @@ def news_report(state, config):
     # Prepare the prompt – include user query if available
     user_query = ""
     for msg in state.get("messages", []):
-        if msg.get("role") == "user":
-            user_query = msg.get("content")
+        if msg_get(msg, "role") == "user":
+            user_query = msg_get(msg, "content")
             break
 
     prompt = [
@@ -126,7 +135,7 @@ def process_tool_results(state, config):
             raw_content = tool_msgs[-1].content
         else:
             # Fallback: if no ToolMessage exists, use the latest AIMessage content
-            raw_content = state.get("messages", [])[-1].get("content", "")
+            raw_content = msg_get(state.get("messages", [])[-1], "content", "")
 
         if not isinstance(raw_content, str):
             raise ValueError("Tool response is not a string")
