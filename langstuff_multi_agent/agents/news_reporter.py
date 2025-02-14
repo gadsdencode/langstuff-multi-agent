@@ -28,11 +28,13 @@ logger = logging.getLogger(__name__)
 MAX_ARTICLES = 3
 MAX_ITERATIONS = 5  # Prevents infinite loops
 
+
 # Helper function
 def msg_get(msg, key, default=None):
     if isinstance(msg, dict):
         return msg.get(key, default)
     return getattr(msg, key, default)
+
 
 def final_response(state, config):
     """Ensures final response is correctly sent to the user."""
@@ -41,12 +43,15 @@ def final_response(state, config):
         logger.info("Returning final summary to user.")
         return {"messages": [final_msg]}
 
-    last_msg = state.get("messages", [])[-1] if state.get("messages") else None
-    if isinstance(last_msg, ToolMessage) and last_msg.content.strip():
-        logger.info("Returning last ToolMessage as final response.")
-        return {"messages": [last_msg]}
+    # NEW: If no final summary exists (e.g. no valid articles found), create a default final message.
+    logger.info("No final summary found; creating default final response to break loop.")
+    default_final = AIMessage(
+        content="No sufficient news articles could be summarized.",
+        additional_kwargs={"final_answer": True}
+    )
+    state["final_summary"] = default_final
+    return {"messages": [default_final]}
 
-    return {"messages": []}
 
 def news_should_continue(state):
     """Determines whether to continue or finalize the agent's workflow."""
@@ -64,6 +69,7 @@ def news_should_continue(state):
         return "final"
 
     return "tools"
+
 
 def news_report(state, config):
     """Fetches and processes news, ensuring termination when enough data is collected."""
@@ -94,6 +100,7 @@ def news_report(state, config):
     state.setdefault("messages", []).append(response)
 
     return {"messages": [response]}
+
 
 def process_tool_results(state, config):
     """Processes tool outputs, accumulates news, and terminates when aggregation is complete."""
@@ -137,6 +144,7 @@ def process_tool_results(state, config):
         logger.error(f"Processing error: {str(e)}")
         return {"messages": [AIMessage(content=f"Error processing news: {str(e)}", additional_kwargs={"error": True})]}
 
+
 def extract_articles(raw_content):
     """Extracts articles from tool responses."""
     articles = []
@@ -152,9 +160,11 @@ def extract_articles(raw_content):
                 articles.append({"title": match.group(1).strip(), "source": match.group(2).strip()})
     return articles
 
+
 def validate_article(article):
     """Ensures an article has both a title and source."""
     return isinstance(article, dict) and "title" in article and "source" in article and len(article["title"]) > 10
+
 
 # LangGraph setup
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
