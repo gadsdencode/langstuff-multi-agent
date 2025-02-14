@@ -4,10 +4,9 @@ Supervisor Agent module for integrating and routing individual LangGraph agent w
 """
 
 from langgraph.graph import StateGraph
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage, BaseMessage
 from langstuff_multi_agent.config import get_llm
-from typing import Literal, Optional, List
-from typing import Literal, Optional, List
+from typing import Literal, Optional, List, TypedDict
 from pydantic import BaseModel, Field
 import re
 import uuid
@@ -17,6 +16,14 @@ from langchain_core.tools import BaseTool
 from typing_extensions import Annotated
 from langchain_core.tools import InjectedToolCallId
 from langstuff_multi_agent.utils.tools import search_memories
+import logging
+import operator
+from langchain.chat_models import BaseChatModel
+from langgraph.graph import Node
+from langgraph.graph import END
+from langgraph.graph.message import AnyMessage, add_messages
+from langgraph.prebuilt import create_react_agent
+from langchain_core.runnables import RunnableConfig
 
 # Import individual workflows.
 from langstuff_multi_agent.agents.debugger import debugger_graph
@@ -33,7 +40,8 @@ from langstuff_multi_agent.agents.customer_support import customer_support_graph
 from langstuff_multi_agent.agents.marketing_strategist import marketing_strategist_graph
 from langstuff_multi_agent.agents.creative_content import creative_content_graph
 from langstuff_multi_agent.agents.financial_analyst import financial_analyst_graph
-import logging
+from langstuff_multi_agent.config import get_llm
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -147,6 +155,8 @@ class RouterState(RouterInput):
 
 def route_query(state: RouterState):
     """Original routing logic with complete system message"""
+    structured_llm = get_llm().bind_tools([RouteDecision])  # <-- INIT HERE
+    
     latest_message = state.messages[-1].content if state.messages else ""
 
     # FULL ORIGINAL SYSTEM PROMPT
@@ -249,67 +259,93 @@ def end_state(state: RouterState):
 # ======================
 # Workflow Construction
 # ======================
-def create_supervisor(agent_graphs=None, configurable=None, supervisor_name=None):
-    """Create supervisor workflow with enhanced configurability"""
-    builder = StateGraph(RouterState)
+class SupervisorState(TypedDict):
+    messages: Annotated[List[BaseMessage], operator.add, add_messages]
+    next: str
+    error_count: Annotated[int, operator.add]  # Track consecutive errors
 
-    # Modified memory loading node
-    builder.add_node("load_memories", lambda state: RouterState(
-        messages=state.messages,
-        memories=search_memories.invoke(
-            state.messages[-1].content,  # Access through model attribute
-            {"configurable": state.configurable.dict() if state.configurable else {}}
-        ),
-        last_route=state.last_route,
-        reasoning=state.reasoning,
-        destination=state.destination
-    ))
+def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dict) -> StateGraph:
+    options = members + ["FINISH"]
+    
+    # Production-grade system prompt from LangChain docs
+    system_prompt = """You manage these workers: {members}. Strict rules:
+1. Route complex queries through multiple agents sequentially
+2. Return FINISH only when ALL user needs are met
+3. On errors, route to debugger then original agent
+4. Never repeat failed agent immediately""".format(members=", ".join(members))
 
-    # Update route_query to handle Pydantic model
-    def updated_route_query(state: RouterState):
-        return RouterState(
-            messages=state.messages + (state.memories if state.memories else []),
-            last_route=state.last_route,
-            memories=state.memories  # Carry forward existing memories
+    class Router(BaseModel):
+        next: Literal[*options]  # type: ignore
+
+    def _supervisor_logic(state: SupervisorState):
+        try:
+            # Error recovery logic
+            if state.get("error_count", 0) > 2:
+                return {"next": "debugger", "error_count": 0}
+                
+            return llm.with_structured_output(Router).invoke(
+                [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=state["messages"][-1].content)
+                ]
+            ).dict()
+        except Exception as e:
+            logger.critical(f"Supervisor failure: {str(e)}")
+            return {"next": "general_assistant", "error_count": state.get("error_count", 0) + 1}
+
+    # 3. Full workflow construction
+    workflow = StateGraph(SupervisorState)
+    workflow.add_node("supervisor", Node(_supervisor_logic))
+    
+    # Add member graphs with error boundaries
+    for name in members:
+        workflow.add_node(
+            name,
+            member_graphs[name].with_retry(  # Requires member_graphs import
+                stop_after_attempt=2,
+                before=lambda _: logger.info("Retrying agent...")
+            )
         )
 
-    builder.add_node("route_query", updated_route_query)
-    builder.add_node("debugger", debugger_graph)
-    builder.add_node("context_manager", context_manager_graph)
-    builder.add_node("project_manager", project_manager_graph)
-    builder.add_node("professional_coach", professional_coach_graph)
-    builder.add_node("life_coach", life_coach_graph)
-    builder.add_node("coder", coder_graph)
-    builder.add_node("analyst", analyst_graph)
-    builder.add_node("researcher", researcher_graph)
-    builder.add_node("general_assistant", general_assistant_graph)
-    builder.add_node("news_reporter", news_reporter_graph)
-    builder.add_node("customer_support", customer_support_graph)
-    builder.add_node("marketing_strategist", marketing_strategist_graph)
-    builder.add_node("creative_content", creative_content_graph)
-    builder.add_node("financial_analyst", financial_analyst_graph)
-    builder.add_node("process_results", process_tool_results)
-    builder.add_node("end", end_state)  # Add terminal node
-
-    # Conditional edges
-    builder.add_conditional_edges(
-        "route_query",
-        lambda s: s.destination if s.destination in AVAILABLE_AGENTS else "general_assistant",
-        {agent: agent for agent in AVAILABLE_AGENTS}
+    # 4. Conditional edges with error routing
+    workflow.add_conditional_edges(
+        "supervisor",
+        lambda state: "debugger" if state.get("error_count", 0) > 0 else state["next"],
+        {member: member for member in members} | {
+            "FINISH": END,
+            "debugger": "debugger"
+        }
     )
+    
+    # 5. Complete circular workflow
+    for member in members:
+        workflow.add_edge(member, "supervisor")
+    
+    workflow.set_entry_point("supervisor")
+    return workflow
 
-    # Add conditional edge from process_results to either end or route_query
-    builder.add_conditional_edges(
-        "process_results",
-        lambda state: "route_query" if should_continue(state) else "end",
-        {"route_query": "route_query", "end": "end"}
-    )
+# 6. Proper initialization with member graphs (REQUIRED)
+member_graphs = {
+    "project_manager": project_manager_graph,
+    "financial_analyst": financial_analyst_graph,
+    "coder": coder_graph,
+    "general_assistant": general_assistant_graph,
+    "news_reporter": news_reporter_graph,
+    "customer_support": customer_support_graph,
+    "marketing_strategist": marketing_strategist_graph,
+    "creative_content": creative_content_graph,
+    "life_coach": life_coach_graph,
+    "professional_coach": professional_coach_graph,
+    "analyst": analyst_graph,
+    "researcher": researcher_graph,
+    "debugger": debugger_graph,
+    "context_manager": context_manager_graph
+}
 
-    builder.add_edge("load_memories", "route_query")
-    builder.set_entry_point("route_query")
-    return builder.compile()
-
-
-supervisor_workflow = create_supervisor()
+supervisor_workflow = create_supervisor(
+    llm=get_llm(),
+    members=list(member_graphs.keys()),
+    member_graphs=member_graphs
+)
 
 __all__ = ["create_supervisor", "supervisor_workflow"]
