@@ -20,7 +20,7 @@ class MemoryManager:
         """Save memories for a user with timestamps."""
         if user_id not in self.memories:
             self.memories[user_id] = []
-            
+
         for memory in memories:
             memory["timestamp"] = datetime.now().isoformat()
             self.memories[user_id].append(memory)
@@ -31,7 +31,7 @@ class MemoryManager:
         """Return k most recent memories for a user."""
         if user_id not in self.memories:
             return []
-            
+
         # For now, just return the k most recent memories
         # In a real implementation, you'd want to do semantic search
         return sorted(
@@ -44,7 +44,7 @@ class MemoryManager:
         """Delete memories older than specified days."""
         if user_id not in self.memories:
             return
-            
+
         cutoff = datetime.now() - timedelta(days=days)
         self.memories[user_id] = [
             m for m in self.memories[user_id]

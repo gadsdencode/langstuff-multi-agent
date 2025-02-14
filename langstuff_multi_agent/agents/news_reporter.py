@@ -2,23 +2,25 @@
 """
 News Reporter Agent module for gathering and summarizing news reports.
 
-This module provides a workflow for gathering and reporting the latest news using various tools.
+This revised module fixes issues in the original implementation:
+1. It accumulates fetched articles in state["articles"] rather than relying solely on a numeric count.
+2. It uses explicit, well-formed message objects for LLM invocations.
+3. It robustly parses tool responses (JSON or text fallback) and generates a final summary when enough articles are gathered.
 """
 
+import json
+import logging
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import (
     search_web,
     news_tool,
     calc_tool,
-    has_tool_calls,
     save_memory,
     search_memories
 )
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain_core.messages import ToolMessage, AIMessage, SystemMessage, HumanMessage
-import json
-import logging
 
 # Create state graph for the news reporter agent
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
@@ -30,201 +32,202 @@ tool_node = ToolNode(tools)
 # Configure logger
 logger = logging.getLogger(__name__)
 
+# Constants
+MAX_ARTICLES = 3
+
 
 def final_response(state, config):
-    """Proper tool response handling with call IDs"""
+    """Return the final summary message with proper tool call IDs if present."""
+    # If the final summary is already generated in state["final_summary"], use it.
+    final_msg = state.get("final_summary")
+    if final_msg:
+        return {"messages": [final_msg]}
+    # Fallback: return all messages with tool call references
     responses = []
-    for msg in state["messages"]:
-        if isinstance(msg, AIMessage) and msg.tool_calls:
+    for msg in state.get("messages", []):
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
             for tool_call in msg.tool_calls:
-                responses.append(ToolMessage(  # REQUIRED format
-                    content=msg.content,
-                    name=tool_call["name"],
-                    tool_call_id=tool_call["id"]  # Match original call ID
-                ))
+                responses.append(
+                    ToolMessage(
+                        content=msg.content,
+                        name=tool_call.get("name"),
+                        tool_call_id=tool_call.get("id")
+                    )
+                )
     return {"messages": responses}
 
 
 def news_should_continue(state):
-    """Determine if news gathering should continue or end"""
-    # Check article count limit
-    if state.get("article_count", 0) >= 3:
-        return "final"  # Go to final summary when limit reached
-    
-    # Check for completion flag
-    last_msg = state.get("messages", [])[-1]
-    if getattr(last_msg, "additional_kwargs", {}).get("report_complete"):
-        return "END"  # End if report is complete
-        
-    # Check for final answer
-    if getattr(last_msg, "additional_kwargs", {}).get("final_answer"):
-        return "END"  # End if we have a final answer
-        
-    return "tools"  # Continue gathering news otherwise
+    """Decide whether to continue gathering news or finalize the report."""
+    articles = state.get("articles", [])
+    if len(articles) >= MAX_ARTICLES:
+        return "final"
+    # Check if last message flags completion
+    last_msg = state.get("messages", [])[-1] if state.get("messages") else None
+    if last_msg and getattr(last_msg, "additional_kwargs", {}).get("report_complete"):
+        return "END"
+    if last_msg and getattr(last_msg, "additional_kwargs", {}).get("final_answer"):
+        return "END"
+    return "tools"
 
 
 def news_report(state, config):
-    """Disable parallel tool calls"""
-    # Merge the configuration from the state and the passed config
+    """Initial news report node: prompt the LLM to fetch news using available tools."""
+    # Ensure the state has an articles accumulator list
+    if "articles" not in state:
+        state["articles"] = []
+    # Merge configuration
     state_config = state.get("configurable", {})
     if config:
         state_config.update(config.get("configurable", {}))
     llm = get_llm(state_config)
-    llm = llm.bind_tools(tools, parallel_tool_calls=False)  # Force sequential
-    # Invoke the LLM with a system prompt tailored for a news reporter agent
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a News Reporter Agent. Your task is to gather and report "
-                            "the latest news, headlines, and summaries from reliable sources.\n\n"
-                            "You have access to the following tools:\n"
-                            "- search_web: Look up recent info and data.\n"
-                            "- news_tool: Retrieve the latest news articles and headlines.\n"
-                            "- calc_tool: Perform calculations if necessary.\n"
-                            "- save_memory: Save information for future reference.\n"
-                            "- search_memories: Retrieve saved information.\n\n"
-                            "Instructions:\n"
-                            "1. Analyze the user's news query.\n"
-                            "2. Use the available tools to gather accurate and up-to-date news.\n"
-                            "3. Provide a clear and concise summary of your findings."
-                        ),
-                    }
-                ]
-            )
-        ]
-    }
+    # Bind tools with sequential (non-parallel) calls
+    llm = llm.bind_tools(tools, parallel_tool_calls=False)
+
+    # Prepare the prompt – include user query if available
+    user_query = ""
+    for msg in state.get("messages", []):
+        if msg.get("role") == "user":
+            user_query = msg.get("content")
+            break
+
+    prompt = [
+        SystemMessage(content=(
+            "You are a News Reporter Agent. Your task is to gather and report "
+            "the latest news, headlines, and summaries from reliable sources.\n\n"
+            "Tools available:\n"
+            "- search_web: To look up recent information.\n"
+            "- news_tool: To retrieve the latest news articles and headlines.\n"
+            "- calc_tool: For any necessary calculations.\n"
+            "- save_memory: To save gathered information for future reference.\n"
+            "- search_memories: To retrieve saved information.\n\n"
+            "Instructions:\n"
+            "1. Analyze the user's query and fetch news articles accordingly.\n"
+            "2. Return a structured list of articles in JSON format with 'title' and 'source' keys.\n"
+            "3. If unable to produce JSON, format each article as: 'Article Title (Source)'.\n"
+            "4. Accumulate articles until you have at least three valid ones."
+        )),
+        HumanMessage(content=f"User query: {user_query}")
+    ]
+
+    response = llm.invoke(state.get("messages", []) + prompt)
+    # Append LLM response to state
+    state.setdefault("messages", []).append(response)
+    return {"messages": [response]}
 
 
 def process_tool_results(state, config):
-    """Process articles and generate final summary when ready"""
-    # Clean previous error messages
-    state["messages"] = [msg for msg in state["messages"]
-                        if not (isinstance(msg, ToolMessage) and "⚠️" in msg.content)]
-
+    """Process tool outputs: parse fetched articles, accumulate them, and generate a final summary if ready."""
     try:
-        # Get last tool message with content validation
-        last_tool_msg = next(msg for msg in reversed(state["messages"])
-                            if isinstance(msg, ToolMessage))
+        # Attempt to extract tool response from the latest messages
+        tool_msgs = [msg for msg in state.get("messages", []) if isinstance(msg, ToolMessage)]
+        raw_content = None
+        if tool_msgs:
+            raw_content = tool_msgs[-1].content
+        else:
+            # Fallback: if no ToolMessage exists, use the latest AIMessage content
+            raw_content = state.get("messages", [])[-1].get("content", "")
 
-        # Clean and parse content
-        raw_content = last_tool_msg.content
         if not isinstance(raw_content, str):
-            raise ValueError("Non-string tool response")
+            raise ValueError("Tool response is not a string")
 
         clean_content = raw_content.replace('\0', '').replace('\ufeff', '').strip()
         if not clean_content:
-            raise ValueError("Empty content after cleaning")
+            raise ValueError("Empty tool response after cleaning")
 
-        # Parse articles
+        # Parse articles: try JSON first, then fallback to line parsing
         if clean_content[0] in ('{', '['):
             articles = json.loads(clean_content)
+            if isinstance(articles, dict):
+                articles = [articles]
         else:
-            # Handle non-JSON responses
-            articles = [
-                {"title": line.split(" (")[0], "source": line.split("(")[-1].rstrip(")")}
-                for line in clean_content.split("\n") if " (" in line and ")" in line
-            ]
+            articles = []
+            for line in clean_content.split("\n"):
+                if " (" in line and line.endswith(")"):
+                    title, source = line.rsplit(" (", 1)
+                    articles.append({
+                        "title": title.strip(),
+                        "source": source.rstrip(")").strip()
+                    })
+        # Validate articles using the helper below and accumulate valid ones
+        valid_articles = [art for art in articles if validate_article(art)]
+        if not valid_articles:
+            raise ValueError("No valid articles found in the tool response")
 
-        # Convert single article to list
-        if not isinstance(articles, list):
-            articles = [articles]
+        # Accumulate articles in state
+        state.setdefault("articles", [])
+        # Avoid duplicates by checking titles
+        existing_titles = {art["title"] for art in state["articles"]}
+        for art in valid_articles:
+            if art["title"] not in existing_titles:
+                state["articles"].append(art)
 
-        # Validate and limit articles
-        MAX_ARTICLES = 3
-        valid_articles = [art for art in articles if validate_article(art)][:MAX_ARTICLES]
-
-        # Track processed count
-        current_count = state.get("article_count", 0)
-        new_count = current_count + len(valid_articles)
-
-        # Generate final summary if we have enough articles
-        if new_count >= MAX_ARTICLES:
+        # If we have enough articles, generate the final summary
+        if len(state["articles"]) >= MAX_ARTICLES:
             llm = get_llm(config.get("configurable", {}))
-            summary = llm.invoke([
+            summary_response = llm.invoke([
                 SystemMessage(content=(
-                    "Create a FINAL news summary with:\n"
+                    "Create a FINAL news summary that includes:\n"
                     "1. Clear section headers\n"
-                    "2. Bullet-point summaries\n"
+                    "2. Bullet-point summaries for each article\n"
                     "3. Source attribution\n"
                     "4. Concluding remarks"
                 )),
                 HumanMessage(content="\n".join(
-                    f"{art['title']} ({art['source']})"
-                    for art in valid_articles
+                    f"{art['title']} ({art['source']})" for art in state["articles"][:MAX_ARTICLES]
                 ))
             ])
-            
-            return {
-                "messages": [
-                    AIMessage(
-                        content=summary.content,
-                        additional_kwargs={
-                            "final_answer": True,
-                            "report_complete": True
-                        }
-                    )
-                ],
-                "article_count": MAX_ARTICLES
-            }
+            final_msg = AIMessage(
+                content=summary_response.content,
+                additional_kwargs={"final_answer": True, "report_complete": True}
+            )
+            state["final_summary"] = final_msg
+            return {"messages": [final_msg]}
 
-        # Otherwise return processed articles
-        return {
-            "messages": [
-                AIMessage(
-                    content=f"Found {len(valid_articles)} new articles",
-                    additional_kwargs={"article_count": new_count}
-                )
-            ],
-            "article_count": new_count
-        }
+        # Otherwise, report the count of accumulated articles and continue
+        status_msg = AIMessage(
+            content=f"Accumulated {len(state['articles'])} valid article(s).",
+            additional_kwargs={"article_count": len(state["articles"])}
+        )
+        return {"messages": [status_msg]}
 
     except Exception as e:
         logger.error(f"Processing error: {str(e)}")
-        return {
-            "messages": [
-                AIMessage(
-                    content=f"Error processing news: {str(e)}",
-                    additional_kwargs={"error": True}
-                )
-            ]
-        }
+        error_msg = AIMessage(
+            content=f"Error processing news: {str(e)}",
+            additional_kwargs={"error": True}
+        )
+        return {"messages": [error_msg]}
+
+
+def validate_article(article: dict) -> bool:
+    """Ensure the article has a valid title and source."""
+    return (
+        isinstance(article, dict) and
+        all(key in article and isinstance(article[key], str) for key in ['title', 'source']) and
+        len(article.get('title', '')) >= 10
+    )
 
 
 def handle_text_fallback(content: str, config: dict) -> dict:
-    """Process text-based news format with source validation"""
+    """Fallback processing if tool output is plain text."""
     articles = []
     for line in content.split("\n"):
         if " (" in line and line.endswith(")"):
             title, source = line.rsplit(" (", 1)
             articles.append({
                 "title": title.strip(),
-                "source": source.rstrip(")").strip()  # Store source as string
+                "source": source.rstrip(")").strip()
             })
-
-    # Validate at least 1 article has both fields
     if not any(validate_article(art) for art in articles):
         raise ValueError("No valid articles in text fallback")
 
-    # Generate summary from parsed text
-    tool_outputs = [f"{art['title']} ({art['source']})" for art in articles[:5]]
     llm = get_llm(config.get("configurable", {}))
     summary = llm.invoke([
-        SystemMessage(content="Create concise bullet points from these articles:"),
-        HumanMessage(content="\n".join(tool_outputs))
+        SystemMessage(content="Create concise bullet points for these articles:"),
+        HumanMessage(content="\n".join(f"{art['title']} ({art['source']})" for art in articles[:5]))
     ])
     return {"messages": [summary]}
-
-
-def validate_article(article: dict) -> bool:
-    """Strict validation for news article structure"""
-    return all(
-        key in article and isinstance(article[key], str)
-        for key in ['title', 'source']
-    ) and len(article.get('title', '')) >= 10
 
 
 # Configure the state graph for the news reporter agent
@@ -232,15 +235,14 @@ news_reporter_graph.add_node("news_report", news_report)
 news_reporter_graph.add_node("tools", tool_node)
 news_reporter_graph.add_node("process_results", process_tool_results)
 news_reporter_graph.add_node("final", final_response)
+
 news_reporter_graph.set_entry_point("news_report")
 news_reporter_graph.add_edge(START, "news_report")
-
 news_reporter_graph.add_conditional_edges(
     "news_report",
     news_should_continue,
     {"tools": "tools", "final": "final", "END": END}
 )
-
 news_reporter_graph.add_edge("final", END)
 news_reporter_graph.add_edge("tools", "process_results")
 news_reporter_graph.add_edge("process_results", "news_report")
@@ -248,4 +250,3 @@ news_reporter_graph.add_edge("process_results", "news_report")
 news_reporter_graph = news_reporter_graph.compile()
 
 __all__ = ["news_reporter_graph"]
-
