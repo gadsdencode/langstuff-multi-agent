@@ -47,24 +47,9 @@ def final_response(state, config):
 
 
 def news_should_continue(state):
-    """Fixed termination condition with explicit completion check"""
-    messages = state.get("messages", [])
-    if not messages:
-        return "END"
-
-    last_message = messages[-1]
-
-    # Explicit completion marker check
-    if isinstance(last_message, AIMessage) and "final_answer" in last_message.additional_kwargs:
-        return "END"
-
-    # Existing tool call check
-    if not getattr(last_message, "tool_calls", []):
-        return "END"
-
-    # Check first tool call for return_direct flag
-    args = last_message.tool_calls[0].get("args", {})
-    return "final" if args.get("return_direct", False) else "tools"
+    """Enhanced termination condition"""
+    last_msg = state.get("messages", [-1])[-1]
+    return "END" if last_msg.additional_kwargs.get("report_complete") else "tools"
 
 
 def news_report(state, config):
@@ -160,30 +145,30 @@ def process_tool_results(state, config):
 
         # Generate comprehensive summary
         try:
-            bullet_points = "\n".join([
-                f"- {art['title']} ({art['source']})"
-                for art in valid_articles[:5]
-            ])
-
-            # Use structured prompt from Medium article
+            # Consolidated summary generation with termination marker
             llm = get_llm(config.get("configurable", {}))
             summary = llm.invoke([
                 SystemMessage(content=(
-                    "Create a CONCISE news briefing with proper attribution:\n"
-                    "1. Start with overarching theme\n"
-                    "2. Group related stories\n"
-                    "3. Cite sources in (parentheses)\n"
-                    "4. End with offering more details"
+                    "Compile a FINAL news report with:\n"
+                    "1. Clear section headers\n"
+                    "2. Bullet-point summaries\n"
+                    "3. Source attribution in (parentheses)\n"
+                    "4. Closing offer for follow-up"
                 )),
-                HumanMessage(content=bullet_points)
+                HumanMessage(content="\n".join(
+                    f"{art['title']} ({art['source']})"
+                    for art in valid_articles[:5]
+                ))
             ])
 
-            # Add completion marker and return single message
-            summary.content += "\n[END OF NEWS BRIEF]"
+            # Add explicit termination signal
             return {"messages": [
                 AIMessage(
                     content=summary.content,
-                    additional_kwargs={"final_answer": True}
+                    additional_kwargs={
+                        "final_answer": True,
+                        "report_complete": True  # New clear completion flag
+                    }
                 )
             ]}
 
