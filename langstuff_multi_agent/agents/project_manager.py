@@ -22,7 +22,13 @@ def manage(state):
     llm = get_llm(config)
     response = llm.invoke(messages)
 
-    return {"messages": messages + [response]}
+    # Create an update that includes messages plus a passthrough of the required state fields.
+    update = {"messages": messages + [response]}
+    # Ensure at least one required key is written (even if unchanged) to satisfy schema:
+    update["tasks"] = state.get("tasks", {})
+    update["current_step"] = state.get("current_step", "")
+    update["artifacts"] = state.get("artifacts", {})
+    return update
 
 
 def process_tool_results(state, config):  # Add config parameter
