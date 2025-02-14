@@ -35,8 +35,8 @@ from langstuff_multi_agent.agents.financial_analyst import (
     financial_analyst_graph
 )
 import threading
-from langstuff_multi_agent.agents.supervisor import create_supervisor
-from langstuff_multi_agent.config import Config
+from langstuff_multi_agent.agents.supervisor import create_supervisor, member_graphs
+from langstuff_multi_agent.config import Config, get_llm
 
 config = Config()
 # Configure logging
@@ -71,9 +71,9 @@ def create_agent_graphs():
 
 # Replace manual supervisor setup with official pattern
 supervisor_graph = create_supervisor(
-    create_agent_graphs(),
-    getattr(config, 'configurable', {}),
-    supervisor_name="main_supervisor"
+    llm=get_llm(),
+    members=list(member_graphs.keys()),
+    member_graphs=member_graphs
 )
 
 # Export all graphs required by langgraph.json
