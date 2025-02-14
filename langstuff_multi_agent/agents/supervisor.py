@@ -18,7 +18,7 @@ from langchain_core.tools import InjectedToolCallId
 from langstuff_multi_agent.utils.tools import search_memories
 import logging
 import operator
-from langchain_community.chat_models import BaseChatModel
+from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import Node
 from langgraph.graph import END
 from langgraph.graph.message import AnyMessage, add_messages
