@@ -105,10 +105,21 @@ general_assistant_graph.add_conditional_edges(
     {"tools": "tools", END: END}
 )
 
-# IMPORTANT: Do NOT add any unconditional edge from "tools" (or process_results) back to "assist".
+# Add edge from tools to process_results
+general_assistant_graph.add_edge("tools", "process_results")
 
-# Explicitly set the finish point to END so that when END is returned, the graph stops.
-general_assistant_graph.set_finish_point(END)
+# Add conditional edge from process_results that can go to END
+def process_results_edge(state):
+    last_msg = state["messages"][-1]
+    if getattr(last_msg, "additional_kwargs", {}).get("final_answer", False):
+        return END
+    return "assist"
+
+general_assistant_graph.add_conditional_edges(
+    "process_results",
+    process_results_edge,
+    {"assist": "assist", END: END}
+)
 
 general_assistant_graph = general_assistant_graph.compile()
 
