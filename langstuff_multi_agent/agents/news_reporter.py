@@ -2,9 +2,8 @@
 """
 Enhanced News Reporter Agent for LangGraph.
 
-This version fixes:
-- Infinite loop by breaking the cycle when a final summary exists.
-- Ensures the agent terminates by routing to the final node instead of looping back.
+This version fixes the infinite loop issue by ensuring that once a final summary is available,
+the state is routed to the "final" node and the graph terminates.
 """
 
 import json
@@ -24,24 +23,24 @@ from langchain_core.messages import ToolMessage, AIMessage, SystemMessage, Human
 
 logger = logging.getLogger(__name__)
 
-# Constants
+# Constants for cycle control
 MAX_ARTICLES = 3
-MAX_ITERATIONS = 5  # Prevents infinite loops
+MAX_ITERATIONS = 3  # Prevents endless looping
 
-# Helper function to safely extract message attributes.
 def msg_get(msg, key, default=None):
+    """Safely extract attributes from message objects."""
     if isinstance(msg, dict):
         return msg.get(key, default)
     return getattr(msg, key, default)
 
 def final_response(state, config):
-    """Ensures final response is correctly sent to the user."""
+    """Return the final summary message."""
     final_msg = state.get("final_summary")
     if final_msg:
         logger.info("Returning final summary to user.")
         return {"messages": [final_msg]}
-    # Fallback: if no final summary exists, create a default final message.
-    logger.info("No final summary found; creating default final response to break loop.")
+    # If no final summary was generated, create a fallback response.
+    logger.info("No final summary found; creating default final response.")
     default_final = AIMessage(
         content="No sufficient news articles could be summarized.",
         additional_kwargs={"final_answer": True}
@@ -50,26 +49,25 @@ def final_response(state, config):
     return {"messages": [default_final]}
 
 def news_should_continue(state):
-    """Determines whether to continue or finalize the agent's workflow."""
+    """Determine if the agent should continue or finalize."""
     if state.get("final_summary"):
-        logger.info("Final summary exists; terminating.")
+        logger.info("Final summary exists; terminating workflow.")
         return "final"
     last_msg = state.get("messages", [])[-1] if state.get("messages") else None
     if isinstance(last_msg, ToolMessage) and last_msg.content.strip():
-        logger.info("ToolMessage received; ending process.")
+        logger.info("Received tool message; finalizing workflow.")
         return "final"
     if len(state.get("articles", [])) >= MAX_ARTICLES or state.get("iteration_count", 0) >= MAX_ITERATIONS:
-        logger.info("Sufficient articles gathered or max iterations reached; finalizing.")
+        logger.info("Enough articles gathered or iteration limit reached; finalizing.")
         return "final"
     return "tools"
 
 def news_report(state, config):
-    """Fetches and processes news, ensuring termination when enough data is collected."""
+    """Main node: fetch news based on user query and update the state."""
     if state.get("final_summary"):
-        logger.info("Final summary exists; returning it instead of running news_report.")
+        logger.info("Final summary exists; exiting news_report.")
         return final_response(state, config)
 
-    # Increment iteration count and update state persistently.
     state["iteration_count"] = state.get("iteration_count", 0) + 1
     logger.info(f"Iteration count: {state['iteration_count']}")
 
@@ -77,10 +75,11 @@ def news_report(state, config):
     state.setdefault("processed_tool_msg_count", 0)
     state.setdefault("messages", [])
 
-    llm = get_llm(state.get("configurable", {}))
-    llm = llm.bind_tools([search_web, news_tool, calc_tool, save_memory, search_memories])
+    llm = get_llm(state.get("configurable", {})).bind_tools(
+        [search_web, news_tool, calc_tool, save_memory, search_memories]
+    )
 
-    # Preserve the original user query for consistency.
+    # Store the original user query once
     if "user_query" not in state:
         state["user_query"] = next(
             (msg_get(msg, "content") for msg in state.get("messages", []) if msg_get(msg, "role") == "user"),
@@ -97,7 +96,7 @@ def news_report(state, config):
     return state
 
 def process_tool_results(state, config):
-    """Processes tool outputs, accumulates news, and finalizes when aggregation is complete."""
+    """Process tool outputs and, if enough articles have been collected, generate a final summary."""
     try:
         tool_msgs = [msg for msg in state.get("messages", []) if isinstance(msg, ToolMessage)]
         processed_count = state.get("processed_tool_msg_count", 0)
@@ -111,8 +110,7 @@ def process_tool_results(state, config):
                 continue
             extracted = extract_articles(raw_content)
             valid_articles = [art for art in extracted if validate_article(art)]
-            if valid_articles:
-                new_articles.extend(valid_articles)
+            new_articles.extend(valid_articles)
 
         state["processed_tool_msg_count"] = len(tool_msgs)
         state.setdefault("articles", [])
@@ -134,6 +132,7 @@ def process_tool_results(state, config):
             state["messages"].append(state["final_summary"])
             return state
 
+        # Otherwise, append a progress update and continue.
         state["messages"].append(AIMessage(content=f"Accumulated {len(state['articles'])} articles."))
         return state
 
@@ -143,7 +142,7 @@ def process_tool_results(state, config):
         return state
 
 def extract_articles(raw_content):
-    """Extracts articles from tool responses."""
+    """Extract articles from tool response content."""
     articles = []
     try:
         articles = json.loads(raw_content)
@@ -158,10 +157,10 @@ def extract_articles(raw_content):
     return articles
 
 def validate_article(article):
-    """Ensures an article has both a title and a source, and that the title is sufficiently descriptive."""
+    """Check that an article has a title and a source, and that the title is descriptive."""
     return isinstance(article, dict) and "title" in article and "source" in article and len(article["title"]) > 10
 
-# LangGraph setup with corrected edge to break the infinite loop.
+# Construct the LangGraph StateGraph.
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
 news_reporter_graph.add_node("news_report", news_report)
 news_reporter_graph.add_node("tools", ToolNode([search_web, news_tool, calc_tool, save_memory, search_memories]))
@@ -171,8 +170,7 @@ news_reporter_graph.add_node("final", final_response)
 news_reporter_graph.set_entry_point("news_report")
 news_reporter_graph.add_edge(START, "news_report")
 news_reporter_graph.add_conditional_edges("news_report", news_should_continue, {"tools": "tools", "final": "final", "END": END})
-# --- CORRECTED EDGE: Instead of an unconditional loop from process_results back to news_report,
-# we now conditionally route: if a final summary exists, go to "final"; otherwise, loop back to "news_report".
+# Conditional edge: if final summary exists, go to "final"; otherwise, return to "news_report".
 news_reporter_graph.add_conditional_edges(
     "process_results",
     lambda state: "final" if state.get("final_summary") else "news_report",
