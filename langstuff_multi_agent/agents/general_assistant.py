@@ -4,7 +4,8 @@ General Assistant Agent module for handling diverse queries.
 
 This module provides a workflow for addressing general user requests
 using a variety of tools. In this revised version, we mark the final assistant 
-message with a 'final_answer' flag to break the looping behavior.
+message with a 'final_answer' flag and use Command objects to explicitly terminate 
+execution when the answer is final, thereby preventing the loop.
 """
 
 from langgraph.graph import StateGraph, MessagesState, START, END
@@ -12,6 +13,7 @@ from langgraph.prebuilt import ToolNode
 from langstuff_multi_agent.utils.tools import search_web, get_current_weather, has_tool_calls, news_tool
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
+from langgraph.types import Command  # Import Command to control flow
 
 # Initialize the graph with the MessagesState and configuration schema
 general_assistant_graph = StateGraph(MessagesState, ConfigSchema)
@@ -45,9 +47,9 @@ def assist(state, config):
 def process_tool_results(state, config):
     """Processes tool outputs and returns the FINAL assistant response.
 
-    This function gathers tool call outputs, appends them as tool messages,
-    then calls the LLM to produce a final response. The final assistant message
-    is marked with an 'additional_kwargs' flag 'final_answer': True to signal termination.
+    If tool calls are present, this node gathers their outputs, calls the LLM,
+    marks the final assistant message with 'final_answer', and then returns a Command
+    that directs execution to END—preventing further looping.
     """
     last_message = state["messages"][-1]
     tool_outputs = []
@@ -75,13 +77,13 @@ def process_tool_results(state, config):
         ]
         llm = get_llm(config.get("configurable", {}))
         final_response = llm.invoke(updated_messages)
-        # Mark the final assistant message as final
         final_assistant_message = {
             "role": "assistant",
             "content": final_response.content,
             "additional_kwargs": {"final_answer": True}
         }
-        return {"messages": updated_messages + [final_assistant_message]}
+        # Return a Command directing the graph to END, with updated state.
+        return Command(goto=END, update={"messages": updated_messages + [final_assistant_message]})
     return state
 
 # Build the graph nodes
@@ -91,16 +93,16 @@ general_assistant_graph.add_node("process_results", process_tool_results)
 general_assistant_graph.set_entry_point("assist")
 general_assistant_graph.add_edge(START, "assist")
 
-# Update the conditional edge to break out if the final message is flagged as final.
+# Update the conditional edge on the "assist" node
 def assist_edge_condition(state):
     msgs = state.get("messages", [])
     if not msgs:
         return "tools"
     last_msg = msgs[-1]
-    # Use getattr to safely access 'additional_kwargs' from an AIMessage object.
+    # If the last message is flagged as final, signal termination.
     if getattr(last_msg, "additional_kwargs", {}).get("final_answer", False):
         return END
-    # Otherwise, if there are tool calls, go to "tools"; else finish.
+    # Otherwise, if there are tool calls, go to "tools"; else, no further processing.
     return "tools" if has_tool_calls(msgs) else END
 
 general_assistant_graph.add_conditional_edges(
@@ -109,8 +111,10 @@ general_assistant_graph.add_conditional_edges(
     {"tools": "tools", END: END}
 )
 
-general_assistant_graph.add_edge("tools", "process_results")
-general_assistant_graph.add_edge("process_results", "assist")
+# IMPORTANT: Remove the unconditional edge from "process_results" to "assist"
+# so that once process_tool_results returns a Command with goto=END, execution terminates.
+general_assistant_graph.add_edge("tools", "assist")
+# general_assistant_graph.add_edge("process_results", "assist")  <-- REMOVED
 
 general_assistant_graph = general_assistant_graph.compile()
 
