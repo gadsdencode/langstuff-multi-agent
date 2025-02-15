@@ -14,7 +14,7 @@ from langstuff_multi_agent.utils.tools import search_web, get_current_weather, h
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langgraph.types import Command  # Use Command to control flow
-from langchain.schema import SystemMessage, AIMessage, ToolMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 
 # Initialize the graph with the MessagesState and configuration schema
 general_assistant_graph = StateGraph(MessagesState, ConfigSchema)
