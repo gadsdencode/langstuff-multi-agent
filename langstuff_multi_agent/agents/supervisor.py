@@ -1,6 +1,9 @@
 # supervisor.py
 """
 Supervisor Agent module for integrating and routing individual LangGraph agent workflows.
+This updated version consolidates routing logic and explicitly processes pending tool calls.
+When the last message is a final answer (and has no pending tool_calls), the workflow finishes.
+Otherwise, pending tool calls are processed before routing.
 """
 
 from langgraph.graph import StateGraph, END
@@ -38,6 +41,7 @@ from langstuff_multi_agent.agents.customer_support import customer_support_graph
 from langstuff_multi_agent.agents.marketing_strategist import marketing_strategist_graph
 from langstuff_multi_agent.agents.creative_content import creative_content_graph
 from langstuff_multi_agent.agents.financial_analyst import financial_analyst_graph
+from langstuff_multi_agent.config import get_llm
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -49,21 +53,16 @@ AVAILABLE_AGENTS = [
     'creative_content', 'financial_analyst'
 ]
 
-
 def log_agent_failure(agent_name, query):
     logger.error(f"Agent '{agent_name}' failed to process query: {query}")
 
-
 WHITESPACE_RE = re.compile(r"\s+")
-
 
 def _normalize_agent_name(agent_name: str) -> str:
     return WHITESPACE_RE.sub("_", agent_name.strip()).lower()
 
-
 def create_handoff_tool(*, agent_name: str) -> BaseTool:
     tool_name = f"transfer_to_{_normalize_agent_name(agent_name)}"
-
     @tool(tool_name)
     def handoff_to_agent(tool_call_id: Annotated[str, InjectedToolCallId]):
         tool_message = ToolMessage(
@@ -77,7 +76,6 @@ def create_handoff_tool(*, agent_name: str) -> BaseTool:
             update={"messages": [tool_message]},
         )
     return handoff_to_agent
-
 
 def create_handoff_back_messages(agent_name: str, supervisor_name: str):
     tool_call_id = str(uuid.uuid4())
@@ -96,11 +94,9 @@ def create_handoff_back_messages(agent_name: str, supervisor_name: str):
         ),
     )
 
-
 class RouterInput(BaseModel):
     messages: List[HumanMessage] = Field(..., description="User messages to route")
     last_route: Optional[str] = Field(None, description="Previous routing destination")
-
 
 class RouteDecision(BaseModel):
     """Routing decision with chain-of-thought reasoning"""
@@ -112,12 +108,10 @@ class RouteDecision(BaseModel):
         'creative_content', 'financial_analyst'
     ] = Field(..., description="Target agent")
 
-
 class RouterState(RouterInput):
     reasoning: Optional[str] = Field(None, description="Routing decision rationale")
     destination: Optional[str] = Field(None, description="Selected agent target")
     memories: List[str] = Field(default_factory=list, description="Relevant memory entries")
-
 
 def route_query(state: RouterState):
     structured_llm = get_llm().bind_tools([RouteDecision])
@@ -147,8 +141,8 @@ def route_query(state: RouterState):
             memories=state.memories
         )
 
-
 def process_tool_results(state, config):
+    """Process any pending tool calls in the message chain."""
     tool_outputs = []
     final_messages = []
     if state.get("reasoning"):
@@ -176,27 +170,24 @@ def process_tool_results(state, config):
                     })
     return {"messages": final_messages + [ToolMessage(content=to["output"], tool_call_id=to["tool_call_id"]) for to in tool_outputs]}
 
-
 def should_continue(state: dict) -> bool:
     messages = state.messages if hasattr(state, "messages") else state.get("messages", [])
     if not messages:
         return True
     last_message = messages[-1]
-    # If the last message is final, stop processing.
+    # Only consider the conversation final if the last AIMessage is marked as final and has no pending tool calls.
     if isinstance(last_message, AIMessage) and last_message.additional_kwargs.get("final_answer", False):
-        return False
-    return not (isinstance(last_message, AIMessage) and not getattr(last_message, "tool_calls", None))
-
+        if not getattr(last_message, "tool_calls", []):
+            return False
+    return True
 
 def end_state(state: RouterState):
     return state
-
 
 class SupervisorState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add, add_messages]
     next: str
     error_count: Annotated[int, operator.add]
-
 
 def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dict, **kwargs) -> StateGraph:
     options = members + ["FINISH"]
@@ -205,15 +196,20 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
 2. Return FINISH only when ALL user needs are met.
 3. On errors, route to general_assistant.
 4. Never repeat a failed agent immediately."""
-
+    
     class Router(BaseModel):
         next: Literal[*options]  # type: ignore
 
     def _supervisor_logic(state: SupervisorState):
-        # If the last message is an AIMessage marked as final, finish immediately.
-        if state["messages"] and isinstance(state["messages"][-1], AIMessage):
-            if state["messages"][-1].additional_kwargs.get("final_answer", False):
-                return {"next": "FINISH", "error_count": state.get("error_count", 0)}
+        # First, check if the last message is an AIMessage with final_answer and no pending tool_calls.
+        if state["messages"]:
+            last_msg = state["messages"][-1]
+            if isinstance(last_msg, AIMessage) and last_msg.additional_kwargs.get("final_answer", False):
+                if not getattr(last_msg, "tool_calls", []):
+                    return {"next": "FINISH", "error_count": state.get("error_count", 0)}
+                else:
+                    # Process pending tool calls before routing further.
+                    state = process_tool_results(state, config={})
         try:
             if state.get("error_count", 0) > 2:
                 return {"next": "general_assistant", "error_count": 0}
@@ -242,7 +238,6 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
         workflow.add_edge(member, "supervisor")
     workflow.set_entry_point("supervisor")
     return workflow
-
 
 # Initialize member graphs (including debugger if desired)
 member_graphs = {
