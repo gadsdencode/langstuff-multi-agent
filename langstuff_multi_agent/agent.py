@@ -124,21 +124,13 @@ logger.info("Primary supervisor workflow successfully initialized.")
 
 
 def handle_user_request(user_input: str, user_id: str):
-    """Handle a user request with memory context.
-
-    Args:
-        user_input: The user's input message
-        user_id: Unique identifier for the user (used for memory isolation)
-
-    Returns:
-        The supervisor graph's response
-    """
+    """Handle a user request with memory context."""
     return supervisor_graph.invoke(
         {"messages": [("user", user_input)]},
         config={
             "configurable": {
-                "user_id": user_id,  # For memory isolation
-                "thread_id": user_id,  # For conversation threading
+                "user_id": user_id,
+                "thread_id": user_id,
                 "checkpointer": Config.PERSISTENT_CHECKPOINTER
             }
         }

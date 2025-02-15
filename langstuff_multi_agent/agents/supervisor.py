@@ -1,4 +1,4 @@
-# langstuff_multi_agent/agents/supervisor.py
+# supervisor.py
 """
 Supervisor Agent module for integrating and routing individual LangGraph agent workflows.
 """
@@ -23,7 +23,7 @@ from langgraph.graph.message import AnyMessage, add_messages
 from langgraph.prebuilt import create_react_agent
 from langchain_core.runnables import RunnableConfig
 
-# Import individual workflows.
+# Import member graphs (including debugger if needed)
 from langstuff_multi_agent.agents.debugger import debugger_graph
 from langstuff_multi_agent.agents.context_manager import context_manager_graph
 from langstuff_multi_agent.agents.project_manager import project_manager_graph
@@ -38,38 +38,22 @@ from langstuff_multi_agent.agents.customer_support import customer_support_graph
 from langstuff_multi_agent.agents.marketing_strategist import marketing_strategist_graph
 from langstuff_multi_agent.agents.creative_content import creative_content_graph
 from langstuff_multi_agent.agents.financial_analyst import financial_analyst_graph
-from langstuff_multi_agent.config import get_llm
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Define valid agent destinations at the top of the file
 AVAILABLE_AGENTS = [
-    'debugger',
-    'context_manager',
-    'project_manager',
-    'professional_coach',
-    'life_coach',
-    'coder',
-    'analyst',
-    'researcher',
-    'general_assistant',
-    'news_reporter',
-    'customer_support',
-    'marketing_strategist',
-    'creative_content',
-    'financial_analyst'
+    'debugger', 'context_manager', 'project_manager', 'professional_coach',
+    'life_coach', 'coder', 'analyst', 'researcher', 'general_assistant',
+    'news_reporter', 'customer_support', 'marketing_strategist',
+    'creative_content', 'financial_analyst'
 ]
 
 
 def log_agent_failure(agent_name, query):
-    """Logs agent failures for better debugging"""
     logger.error(f"Agent '{agent_name}' failed to process query: {query}")
 
 
-# ======================
-# Handoff Implementation
-# ======================
 WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -81,9 +65,7 @@ def create_handoff_tool(*, agent_name: str) -> BaseTool:
     tool_name = f"transfer_to_{_normalize_agent_name(agent_name)}"
 
     @tool(tool_name)
-    def handoff_to_agent(
-        tool_call_id: Annotated[str, InjectedToolCallId],
-    ):
+    def handoff_to_agent(tool_call_id: Annotated[str, InjectedToolCallId]):
         tool_message = ToolMessage(
             content=f"Successfully transferred to {agent_name}",
             name=tool_name,
@@ -115,11 +97,8 @@ def create_handoff_back_messages(agent_name: str, supervisor_name: str):
     )
 
 
-# ======================
-# Core Supervisor Logic
-# ======================
 class RouterInput(BaseModel):
-    messages: list[HumanMessage] = Field(..., description="User messages to route")
+    messages: List[HumanMessage] = Field(..., description="User messages to route")
     last_route: Optional[str] = Field(None, description="Previous routing destination")
 
 
@@ -127,60 +106,32 @@ class RouteDecision(BaseModel):
     """Routing decision with chain-of-thought reasoning"""
     reasoning: str = Field(..., description="Step-by-step routing logic")
     destination: Literal[
-        'debugger',
-        'context_manager',
-        'project_manager',
-        'professional_coach',
-        'life_coach',
-        'coder',
-        'analyst',
-        'researcher',
-        'general_assistant',
-        'news_reporter',
-        'customer_support',
-        'marketing_strategist',
-        'creative_content',
-        'financial_analyst'
+        'debugger', 'context_manager', 'project_manager', 'professional_coach',
+        'life_coach', 'coder', 'analyst', 'researcher', 'general_assistant',
+        'news_reporter', 'customer_support', 'marketing_strategist',
+        'creative_content', 'financial_analyst'
     ] = Field(..., description="Target agent")
 
 
 class RouterState(RouterInput):
-    """Combined state for routing workflow"""
     reasoning: Optional[str] = Field(None, description="Routing decision rationale")
     destination: Optional[str] = Field(None, description="Selected agent target")
     memories: List[str] = Field(default_factory=list, description="Relevant memory entries")
 
 
 def route_query(state: RouterState):
-    """Original routing logic with complete system message"""
-    structured_llm = get_llm().bind_tools([RouteDecision])  # <-- INIT HERE
-
+    structured_llm = get_llm().bind_tools([RouteDecision])
     latest_message = state.messages[-1].content if state.messages else ""
-
-    # FULL ORIGINAL SYSTEM PROMPT
-    system = """You are an expert router for a multi-agent system. Analyze the user's query 
-    and route to ONE specialized agent. Consider these specialties:
-    - Debugger: Code errors solutions, troubleshooting
-    - Coder: Writing/explaining code
-    - Analyst: Data analysis requests
-    - Researcher: Fact-finding, web research, news research
-    - Project Manager: Task planning
-    - Life Coach: Personal life strategies and advice
-    - Professional Coach: Professional career strategies and advice
-    - General Assistant: General purpose assistant for generic requests
-    - News Reporter: News searching, reporting and summaries
-    - Customer Support: Customer support queries
-    - Marketing Strategist: Marketing strategy, insights, trends, and planning
-    - Creative Content: Creative writing, marketing copy, social media posts, or brainstorming ideas
-    - Financial Analyst: Financial analysis, market data, forecasting, and investment insights"""
-
-    # ORIGINAL INVOCATION PATTERN
+    system = (
+        "You are an expert router for a multi-agent system. Analyze the user's query "
+        "and route to ONE specialized agent from the following: Context Manager, Project Manager, "
+        "Professional Coach, Life Coach, Coder, Analyst, Researcher, General Assistant, News Reporter, "
+        "Customer Support, Marketing Strategist, Creative Content, Financial Analyst."
+    )
     decision = structured_llm.invoke([
         SystemMessage(content=system),
         HumanMessage(content=f"Route this query: {latest_message}")
     ])
-
-    # ORIGINAL VALIDATION LOGIC
     if decision.destination not in AVAILABLE_AGENTS:
         logger.error(f"Invalid agent {decision.destination} selected")
         return RouterState(
@@ -198,17 +149,13 @@ def route_query(state: RouterState):
 
 
 def process_tool_results(state, config):
-    """Updated to preserve final assistant messages and show reasoning"""
     tool_outputs = []
     final_messages = []
-
-    # Add reasoning to messages if present
     if state.get("reasoning"):
         final_messages.append(AIMessage(content=f"Routing Reason: {state['reasoning']}"))
-
     for msg in state["messages"]:
         if isinstance(msg, AIMessage) and not msg.tool_calls:
-            final_messages.append(msg)  # Capture final assistant response
+            final_messages.append(msg)
         if tool_calls := getattr(msg, "tool_calls", None):
             for tc in tool_calls:
                 if tc['name'].startswith('transfer_to_'):
@@ -216,7 +163,6 @@ def process_tool_results(state, config):
                         goto=tc['name'].replace('transfer_to_', ''),
                         graph=ToolMessage.PARENT
                     )]}
-                # Ensure every tool call gets a response
                 try:
                     output = f"Tool {tc['name']} result: {tc.get('output', '')}"
                     tool_outputs.append({
@@ -226,112 +172,79 @@ def process_tool_results(state, config):
                 except Exception as e:
                     tool_outputs.append({
                         "tool_call_id": tc["id"],
-                        "output": f"Error: {str(e)}"  # Still provide a response on error
+                        "output": f"Error: {str(e)}"
                     })
-
-    return {
-        "messages": [
-            *final_messages,  # Preserve final responses
-            *[ToolMessage(
-                content=to["output"],
-                tool_call_id=to["tool_call_id"]
-            ) for to in tool_outputs]
-        ]
-    }
+    return {"messages": final_messages + [ToolMessage(content=to["output"], tool_call_id=to["tool_call_id"]) for to in tool_outputs]}
 
 
 def should_continue(state: dict) -> bool:
-    """Determine if the workflow should continue processing."""
-    # Handle both dict and Pydantic model cases
     messages = state.messages if hasattr(state, "messages") else state.get("messages", [])
     if not messages:
         return True
-
     last_message = messages[-1]
-    return not isinstance(last_message, AIMessage) or bool(getattr(last_message, "tool_calls", None))
+    # If the last message is final, stop processing.
+    if isinstance(last_message, AIMessage) and last_message.additional_kwargs.get("final_answer", False):
+        return False
+    return not (isinstance(last_message, AIMessage) and not getattr(last_message, "tool_calls", None))
 
 
 def end_state(state: RouterState):
-    """Terminal node that returns the final state."""
     return state
 
 
-# ======================
-# Workflow Construction
-# ======================
 class SupervisorState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add, add_messages]
     next: str
-    error_count: Annotated[int, operator.add]  # Track consecutive errors
+    error_count: Annotated[int, operator.add]
 
 
-def create_supervisor(
-    llm: BaseChatModel,
-    members: list[str],
-    member_graphs: dict,
-    **kwargs  # Add to accept unexpected arguments
-) -> StateGraph:
+def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dict, **kwargs) -> StateGraph:
     options = members + ["FINISH"]
-
-    # Production-grade system prompt from LangChain docs
-    system_prompt = """You manage these workers: {members}. Strict rules:
-1. Route complex queries through multiple agents sequentially
-2. Return FINISH only when ALL user needs are met
-3. On errors, route to debugger then original agent
-4. Never repeat failed agent immediately""".format(members=", ".join(members))
+    system_prompt = f"""You manage these workers: {', '.join(members)}. Strict rules:
+1. Route complex queries through multiple agents sequentially.
+2. Return FINISH only when ALL user needs are met.
+3. On errors, route to general_assistant.
+4. Never repeat a failed agent immediately."""
 
     class Router(BaseModel):
         next: Literal[*options]  # type: ignore
 
     def _supervisor_logic(state: SupervisorState):
+        # If the last message is an AIMessage marked as final, finish immediately.
+        if state["messages"] and isinstance(state["messages"][-1], AIMessage):
+            if state["messages"][-1].additional_kwargs.get("final_answer", False):
+                return {"next": "FINISH", "error_count": state.get("error_count", 0)}
         try:
-            # Error recovery logic
             if state.get("error_count", 0) > 2:
-                return {"next": "debugger", "error_count": 0}
-
-            return llm.with_structured_output(Router).invoke(
-                [
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=state["messages"][-1].content)
-                ]
-            ).dict()
+                return {"next": "general_assistant", "error_count": 0}
+            result = llm.with_structured_output(Router).invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=state["messages"][-1].content)
+            ])
+            return result.dict()
         except Exception as e:
             logger.critical(f"Supervisor failure: {str(e)}")
             return {"next": "general_assistant", "error_count": state.get("error_count", 0) + 1}
 
-    # 3. Full workflow construction
     workflow = StateGraph(SupervisorState)
     workflow.add_node("supervisor", _supervisor_logic)
-
-    # Add member graphs with error boundaries
     for name in members:
         workflow.add_node(
             name,
-            member_graphs[name].with_retry(
-                stop_after_attempt=2,
-                wait_exponential_jitter=True
-            )
+            member_graphs[name].with_retry(stop_after_attempt=2, wait_exponential_jitter=True)
         )
-
-    # 4. Conditional edges with error routing
     workflow.add_conditional_edges(
         "supervisor",
-        lambda state: "debugger" if state.get("error_count", 0) > 0 else state["next"],
-        {member: member for member in members} | {
-            "FINISH": END,
-            "debugger": "debugger"
-        }
+        lambda state: "general_assistant" if state.get("error_count", 0) > 0 else state["next"],
+        {member: member for member in members} | {"FINISH": END, "general_assistant": "general_assistant"}
     )
-
-    # 5. Complete circular workflow
     for member in members:
         workflow.add_edge(member, "supervisor")
-
     workflow.set_entry_point("supervisor")
     return workflow
 
 
-# 6. Proper initialization with member graphs (REQUIRED)
+# Initialize member graphs (including debugger if desired)
 member_graphs = {
     "project_manager": project_manager_graph,
     "financial_analyst": financial_analyst_graph,
