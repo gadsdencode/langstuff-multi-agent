@@ -1,50 +1,45 @@
-# supervisor.py
+# langstuff_multi_agent/agents/supervisor.py
 """
 Supervisor Agent module for integrating and routing individual LangGraph agent workflows.
-This updated version consolidates routing logic and explicitly processes pending tool calls.
-When the last message is a final answer (and has no pending tool_calls), the workflow finishes.
-Otherwise, pending tool calls are processed before routing.
+Updated to use extended state with 'metadata' and 'state' keys.
+All state updates from nodes now propagate these fields unchanged.
 """
 
-from langgraph.graph import StateGraph, END
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage, BaseMessage
-from langstuff_multi_agent.config import get_llm
-from typing import Literal, Optional, List, TypedDict
-from pydantic import BaseModel, Field
+import logging
 import re
 import uuid
-from langchain_community.tools import tool
-from langchain_core.messages import ToolCall
+import operator
+from typing import List, Optional, Literal, TypedDict
+from pydantic import BaseModel, Field
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage, BaseMessage, ToolCall
 from langchain_core.tools import BaseTool
 from typing_extensions import Annotated
 from langchain_core.tools import InjectedToolCallId
-from langstuff_multi_agent.utils.tools import search_memories
-import logging
-import operator
-from langchain_core.language_models.chat_models import BaseChatModel
-from langgraph.graph.message import AnyMessage, add_messages
+from langstuff_multi_agent.config import get_llm
+from langgraph.graph.message import add_messages, convert_to_messages, add_messages as _add_messages
+from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import create_react_agent
 from langchain_core.runnables import RunnableConfig
-
-# Import member graphs (including debugger if needed)
-from langstuff_multi_agent.agents.debugger import debugger_graph
-from langstuff_multi_agent.agents.context_manager import context_manager_graph
 from langstuff_multi_agent.agents.project_manager import project_manager_graph
-from langstuff_multi_agent.agents.professional_coach import professional_coach_graph
-from langstuff_multi_agent.agents.life_coach import life_coach_graph
+from langstuff_multi_agent.agents.financial_analyst import financial_analyst_graph
 from langstuff_multi_agent.agents.coder import coder_graph
-from langstuff_multi_agent.agents.analyst import analyst_graph
-from langstuff_multi_agent.agents.researcher import researcher_graph
 from langstuff_multi_agent.agents.general_assistant import general_assistant_graph
 from langstuff_multi_agent.agents.news_reporter import news_reporter_graph
 from langstuff_multi_agent.agents.customer_support import customer_support_graph
 from langstuff_multi_agent.agents.marketing_strategist import marketing_strategist_graph
 from langstuff_multi_agent.agents.creative_content import creative_content_graph
-from langstuff_multi_agent.agents.financial_analyst import financial_analyst_graph
+from langstuff_multi_agent.agents.life_coach import life_coach_graph
+from langstuff_multi_agent.agents.professional_coach import professional_coach_graph
+from langstuff_multi_agent.agents.analyst import analyst_graph
+from langstuff_multi_agent.agents.researcher import researcher_graph
+from langstuff_multi_agent.agents.debugger import debugger_graph
+from langstuff_multi_agent.agents.context_manager import context_manager_graph
+from langchain_community.tools import tool
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+# Define AVAILABLE_AGENTS constant (unchanged)
 AVAILABLE_AGENTS = [
     'debugger', 'context_manager', 'project_manager', 'professional_coach',
     'life_coach', 'coder', 'analyst', 'researcher', 'general_assistant',
@@ -62,6 +57,8 @@ def _normalize_agent_name(agent_name: str) -> str:
 
 def create_handoff_tool(*, agent_name: str) -> BaseTool:
     tool_name = f"transfer_to_{_normalize_agent_name(agent_name)}"
+      # ensure tool decorator available
+
     @tool(tool_name)
     def handoff_to_agent(tool_call_id: Annotated[str, InjectedToolCallId]):
         tool_message = ToolMessage(
@@ -93,9 +90,17 @@ def create_handoff_back_messages(agent_name: str, supervisor_name: str):
         ),
     )
 
+# Extended RouterState now includes optional metadata and state fields.
 class RouterInput(BaseModel):
     messages: List[HumanMessage] = Field(..., description="User messages to route")
     last_route: Optional[str] = Field(None, description="Previous routing destination")
+
+class RouterState(RouterInput):
+    reasoning: Optional[str] = Field(None, description="Routing decision rationale")
+    destination: Optional[str] = Field(None, description="Selected agent target")
+    memories: List[str] = Field(default_factory=list, description="Relevant memory entries")
+    metadata: Optional[dict] = Field(None, description="Additional metadata")
+    state: Optional[dict] = Field(None, description="Additional persistent state")
 
 class RouteDecision(BaseModel):
     """Routing decision with chain-of-thought reasoning"""
@@ -107,13 +112,7 @@ class RouteDecision(BaseModel):
         'creative_content', 'financial_analyst'
     ] = Field(..., description="Target agent")
 
-class RouterState(RouterInput):
-    reasoning: Optional[str] = Field(None, description="Routing decision rationale")
-    destination: Optional[str] = Field(None, description="Selected agent target")
-    memories: List[str] = Field(default_factory=list, description="Relevant memory entries")
-
 def route_query(state: RouterState):
-    logger.info(f"route_query: Starting routing for message: {state.messages[-1].content if state.messages else 'No message'}") # Logging input message
     structured_llm = get_llm().bind_tools([RouteDecision])
     latest_message = state.messages[-1].content if state.messages else ""
     system = (
@@ -122,43 +121,40 @@ def route_query(state: RouterState):
         "Professional Coach, Life Coach, Coder, Analyst, Researcher, General Assistant, News Reporter, "
         "Customer Support, Marketing Strategist, Creative Content, Financial Analyst."
     )
-    try:
-        decision = structured_llm.invoke([
-            SystemMessage(content=system),
-            HumanMessage(content=f"Route this query: {latest_message}")
-        ])
-        logger.info(f"route_query: LLM Decision Output: {decision}") # Log LLM decision object
-        if decision.destination not in AVAILABLE_AGENTS:
-            logger.error(f"route_query: Invalid agent {decision.destination} selected by LLM. Fallback to general_assistant.")
-            return RouterState(
-                messages=state.messages,
-                destination="general_assistant",
-                reasoning="Fallback due to invalid agent selection"
-            )
-        else:
-            logger.info(f"route_query: Successfully routed to agent: {decision.destination}, Reasoning: {decision.reasoning}") # Log successful routing
-            return RouterState(
-                messages=state.messages,
-                reasoning=decision.reasoning,
-                destination=decision.destination,
-                memories=state.memories
-            )
-    except Exception as e:
-        logger.error(f"route_query: Exception during routing: {e}. Fallback to general_assistant.")
+    decision = structured_llm.invoke([
+        SystemMessage(content=system),
+        HumanMessage(content=f"Route this query: {latest_message}")
+    ])
+    if decision.destination not in AVAILABLE_AGENTS:
+        logger.error(f"Invalid agent {decision.destination} selected")
         return RouterState(
             messages=state.messages,
             destination="general_assistant",
-            reasoning=f"Fallback due to routing error: {e}"
+            reasoning="Fallback due to invalid agent selection",
+            metadata=state.metadata,
+            state=state.state,
+        )
+    else:
+        return RouterState(
+            messages=state.messages,
+            reasoning=decision.reasoning,
+            destination=decision.destination,
+            memories=state.memories,
+            metadata=state.metadata,
+            state=state.state,
         )
 
 def process_tool_results(state, config):
-    """Process any pending tool calls in the message chain."""
+    """
+    Process any pending tool calls in the message chain.
+    Propagates metadata and state unchanged.
+    """
     tool_outputs = []
     final_messages = []
     if state.get("reasoning"):
         final_messages.append(AIMessage(content=f"Routing Reason: {state['reasoning']}"))
     for msg in state["messages"]:
-        if isinstance(msg, AIMessage) and not msg.tool_calls:
+        if isinstance(msg, AIMessage) and not getattr(msg, "tool_calls", []):
             final_messages.append(msg)
         if tool_calls := getattr(msg, "tool_calls", None):
             for tc in tool_calls:
@@ -166,7 +162,7 @@ def process_tool_results(state, config):
                     return {"messages": [ToolMessage(
                         goto=tc['name'].replace('transfer_to_', ''),
                         graph=ToolMessage.PARENT
-                    )]}
+                    )], "metadata": state.get("metadata", {}), "state": state.get("state", {})}
                 try:
                     output = f"Tool {tc['name']} result: {tc.get('output', '')}"
                     tool_outputs.append({
@@ -178,14 +174,21 @@ def process_tool_results(state, config):
                         "tool_call_id": tc["id"],
                         "output": f"Error: {str(e)}"
                     })
-    return {"messages": final_messages + [ToolMessage(content=to["output"], tool_call_id=to["tool_call_id"]) for to in tool_outputs]}
+    # Return updated state while preserving metadata and state
+    return {
+        "messages": final_messages + [
+            ToolMessage(content=to["output"], tool_call_id=to["tool_call_id"])
+            for to in tool_outputs
+        ],
+        "metadata": state.get("metadata", {}),
+        "state": state.get("state", {})
+    }
 
 def should_continue(state: dict) -> bool:
-    messages = state.messages if hasattr(state, "messages") else state.get("messages", [])
+    messages = state.get("messages", [])
     if not messages:
         return True
     last_message = messages[-1]
-    # Only consider the conversation final if the last AIMessage is marked as final and has no pending tool calls.
     if isinstance(last_message, AIMessage) and last_message.additional_kwargs.get("final_answer", False):
         if not getattr(last_message, "tool_calls", []):
             return False
@@ -194,52 +197,55 @@ def should_continue(state: dict) -> bool:
 def end_state(state: RouterState):
     return state
 
+# SupervisorState now includes metadata and state updates.
 class SupervisorState(TypedDict):
-    messages: Annotated[List[BaseMessage], operator.add, add_messages]
+    messages: Annotated[List[BaseMessage], operator.add]
     next: str
-    error_count: Annotated[int, operator.add]
+    error_count: int
+    metadata: Dict[str, Any]
+    state: Dict[str, Any]
 
-def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dict, **kwargs) -> StateGraph:
+def create_supervisor(llm, members: list[str], member_graphs: dict, **kwargs) -> StateGraph:
     options = members + ["FINISH"]
-    system_prompt = f"""You manage these workers: {', '.join(members)}. Strict rules:
-1. Route complex queries through multiple agents sequentially.
-2. Return FINISH only when ALL user needs are met.
-3. On errors, route to general_assistant.
-4. Never repeat a failed agent immediately."""
+    system_prompt = (
+        f"You manage these workers: {', '.join(members)}. Strict rules:\n"
+        "1. Route complex queries through multiple agents sequentially.\n"
+        "2. Return FINISH only when ALL user needs are met.\n"
+        "3. On errors, route to general_assistant.\n"
+        "4. Never repeat a failed agent immediately."
+    )
 
     class Router(BaseModel):
         next: Literal[*options]  # type: ignore
 
     def _supervisor_logic(state: SupervisorState):
-        logger.info(f"_supervisor_logic: Input State: {state}") # Log input state
-
-        # First, check if the last message is an AIMessage with final_answer and no pending tool_calls.
+        # Check if last message is a final AIMessage with no pending tool calls.
         if state["messages"]:
             last_msg = state["messages"][-1]
             if isinstance(last_msg, AIMessage) and last_msg.additional_kwargs.get("final_answer", False):
                 if not getattr(last_msg, "tool_calls", []):
-                    logger.info("_supervisor_logic: Reached FINISH state.") # Log FINISH condition
-                    return {"next": "FINISH", "error_count": state.get("error_count", 0)}
+                    return {"next": "FINISH", "error_count": state.get("error_count", 0),
+                            "metadata": state.get("metadata", {}), "state": state.get("state", {})}
                 else:
-                    # Process pending tool calls before routing further.
-                    logger.info("_supervisor_logic: Processing tool results before routing.") # Log tool processing
-                    state_after_tools = process_tool_results(state, config={})
-                    logger.info(f"_supervisor_logic: State after tool processing: {state_after_tools}") # Log state after tool processing
-                    return state_after_tools # Return the state after tool processing for next iteration
+                    state = process_tool_results(state, config={})
         try:
             if state.get("error_count", 0) > 2:
-                logger.warning("_supervisor_logic: Error count exceeded. Routing to general_assistant.") # Log error count fallback
-                return {"next": "general_assistant", "error_count": 0}
-            logger.info("_supervisor_logic: Invoking LLM Router...") # Log LLM router invocation
+                return {"next": "general_assistant", "error_count": 0,
+                        "metadata": state.get("metadata", {}), "state": state.get("state", {})}
             result = llm.with_structured_output(Router).invoke([
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=state["messages"][-1].content)
             ])
-            logger.info(f"_supervisor_logic: LLM Router Output: {result}") # Log LLM router output
-            return result.dict()
+            return {
+                **result.dict(),
+                "error_count": state.get("error_count", 0),
+                "metadata": state.get("metadata", {}),
+                "state": state.get("state", {})
+            }
         except Exception as e:
-            logger.critical(f"_supervisor_logic: Supervisor failure: {str(e)}. Routing to general_assistant.") # Log supervisor failure
-            return {"next": "general_assistant", "error_count": state.get("error_count", 0) + 1}
+            logger.critical(f"Supervisor failure: {str(e)}")
+            return {"next": "general_assistant", "error_count": state.get("error_count", 0) + 1,
+                    "metadata": state.get("metadata", {}), "state": state.get("state", {})}
 
     workflow = StateGraph(SupervisorState)
     workflow.add_node("supervisor", _supervisor_logic)
@@ -258,7 +264,8 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
     workflow.set_entry_point("supervisor")
     return workflow
 
-# Initialize member graphs (including debugger if desired)
+
+# Initialize member graphs (unchanged)
 member_graphs = {
     "project_manager": project_manager_graph,
     "financial_analyst": financial_analyst_graph,
