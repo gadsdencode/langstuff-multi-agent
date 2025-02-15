@@ -27,6 +27,12 @@ def assist(state, config):
     """Provide general assistance with configuration support."""
     llm = get_llm(config.get("configurable", {}))
     llm = llm.bind_tools(tools)
+    
+    messages = state.get("messages", [])
+    if messages and isinstance(messages[-1], AIMessage):
+        messages[-1].additional_kwargs["final_answer"] = True
+        return {"messages": messages}
+    
     system_message = SystemMessage(
         content=(
             "You are a General Assistant Agent. Your task is to assist with a variety of general queries and tasks.\n\n"
@@ -41,13 +47,12 @@ def assist(state, config):
         )
     )
     
-    messages = state.get("messages", [])
-    if messages and isinstance(messages[-1], AIMessage):
-        # If we already responded, mark it as final and end
-        messages[-1].additional_kwargs["final_answer"] = True
-        return {"messages": messages}
-        
     response = llm.invoke(messages + [system_message])
+    
+    # Critical fix: Always mark final answer in new responses
+    if isinstance(response, AIMessage) and not response.tool_calls:
+        response.additional_kwargs["final_answer"] = True
+    
     return {"messages": messages + [response]}
 
 def process_tool_results(state, config):
@@ -98,21 +103,18 @@ def assist_edge_condition(state):
     
     last_msg = msgs[-1]
     
-    # Critical fix: Check for explicit tool transfers
-    if isinstance(last_msg, ToolMessage) and hasattr(last_msg, 'goto'):
-        return END  # Transfer handled by supervisor
-    
-    # Existing logic with enhanced validation
+    # Improved final answer detection
     if isinstance(last_msg, AIMessage):
         if last_msg.additional_kwargs.get("final_answer", False):
             return END
         if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
             return "tools"
     
-    # New: Handle intermediate tool responses
-    if any(isinstance(msg, ToolMessage) for msg in msgs):
-        return "tools"
+    # Handle tool message transfers
+    if isinstance(last_msg, ToolMessage) and hasattr(last_msg, 'goto'):
+        return END
     
+    # Final fallback to end conversation
     return END
 
 # Add nodes to the graph

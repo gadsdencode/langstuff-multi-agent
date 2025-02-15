@@ -224,10 +224,13 @@ def create_supervisor(llm, members: list[str], member_graphs: dict, **kwargs) ->
         next: Literal[*options]  # type: ignore
 
     def _supervisor_logic(state: SupervisorState):
-        # Fix: Check for explicit transfer messages first
+        # Add debug logging
+        logger.debug(f"Supervisor state: {state.get('messages', [])[-1].content if state.get('messages') else 'No messages'}")
+        
         if state["messages"]:
             last_msg = state["messages"][-1]
             if isinstance(last_msg, ToolMessage) and hasattr(last_msg, 'goto'):
+                logger.info(f"Transferring to {last_msg.goto}")
                 return {
                     "next": last_msg.goto,
                     "error_count": 0,
