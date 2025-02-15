@@ -145,43 +145,48 @@ def route_query(state: RouterState):
         )
 
 def process_tool_results(state, config):
-    """
-    Process any pending tool calls in the message chain.
-    Propagates metadata and state unchanged.
-    """
+    """Process tool outputs and route correctly"""
+    messages = state.get("messages", [])
+    metadata = state.get("metadata", {})
+    persistent_state = state.get("state", {})
+    
+    # Critical fix: Properly handle transfer tool calls
+    for msg in messages:
+        if isinstance(msg, ToolMessage) and hasattr(msg, 'goto'):
+            return {
+                "messages": [msg],
+                "metadata": metadata,
+                "state": persistent_state,
+                "next": msg.goto
+            }
+    
+    # Existing processing logic...
     tool_outputs = []
-    final_messages = []
-    if state.get("reasoning"):
-        final_messages.append(AIMessage(content=f"Routing Reason: {state['reasoning']}"))
-    for msg in state["messages"]:
-        if isinstance(msg, AIMessage) and not getattr(msg, "tool_calls", []):
-            final_messages.append(msg)
-        if tool_calls := getattr(msg, "tool_calls", None):
+    for msg in messages:
+        if isinstance(msg, AIMessage) and (tool_calls := getattr(msg, "tool_calls", None)):
             for tc in tool_calls:
                 if tc['name'].startswith('transfer_to_'):
-                    return {"messages": [ToolMessage(
-                        goto=tc['name'].replace('transfer_to_', ''),
-                        graph=ToolMessage.PARENT
-                    )], "metadata": state.get("metadata", {}), "state": state.get("state", {})}
-                try:
-                    output = f"Tool {tc['name']} result: {tc.get('output', '')}"
-                    tool_outputs.append({
-                        "tool_call_id": tc["id"],
-                        "output": output
-                    })
-                except Exception as e:
-                    tool_outputs.append({
-                        "tool_call_id": tc["id"],
-                        "output": f"Error: {str(e)}"
-                    })
+                    agent_name = tc['name'].replace('transfer_to_', '')
+                    return {
+                        "messages": [ToolMessage(
+                            content=f"Transferring to {agent_name}",
+                            name=tc['name'],
+                            tool_call_id=tc['id'],
+                            goto=agent_name
+                        )],
+                        "metadata": metadata,
+                        "state": persistent_state,
+                        "next": agent_name
+                    }
+
     # Return updated state while preserving metadata and state
     return {
-        "messages": final_messages + [
+        "messages": messages + [
             ToolMessage(content=to["output"], tool_call_id=to["tool_call_id"])
             for to in tool_outputs
         ],
-        "metadata": state.get("metadata", {}),
-        "state": state.get("state", {})
+        "metadata": metadata,
+        "state": persistent_state
     }
 
 def should_continue(state: dict) -> bool:
@@ -219,23 +224,27 @@ def create_supervisor(llm, members: list[str], member_graphs: dict, **kwargs) ->
         next: Literal[*options]  # type: ignore
 
     def _supervisor_logic(state: SupervisorState):
-        # Check if last message is a final AIMessage with no pending tool calls.
+        # Fix: Check for explicit transfer messages first
         if state["messages"]:
             last_msg = state["messages"][-1]
-            if isinstance(last_msg, AIMessage) and last_msg.additional_kwargs.get("final_answer", False):
-                if not getattr(last_msg, "tool_calls", []):
-                    return {"next": "FINISH", "error_count": state.get("error_count", 0),
-                            "metadata": state.get("metadata", {}), "state": state.get("state", {})}
-                else:
-                    state = process_tool_results(state, config={})
+            if isinstance(last_msg, ToolMessage) and hasattr(last_msg, 'goto'):
+                return {
+                    "next": last_msg.goto,
+                    "error_count": 0,
+                    "metadata": state.get("metadata", {}),
+                    "state": state.get("state", {})
+                }
+        
+        # Enhanced validation for routing decisions
         try:
-            if state.get("error_count", 0) > 2:
-                return {"next": "general_assistant", "error_count": 0,
-                        "metadata": state.get("metadata", {}), "state": state.get("state", {})}
             result = llm.with_structured_output(Router).invoke([
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=state["messages"][-1].content)
             ])
+            if result.next not in members:
+                logger.warning(f"Invalid agent {result.next} selected, using fallback")
+                result.next = "general_assistant"
+            
             return {
                 **result.dict(),
                 "error_count": state.get("error_count", 0),

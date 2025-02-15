@@ -91,17 +91,28 @@ def process_tool_results(state, config):
     return state
 
 def assist_edge_condition(state):
-    """Determine where to go after assist node"""
+    """Enhanced edge condition handling"""
     msgs = state.get("messages", [])
     if not msgs:
         return "tools"
     
     last_msg = msgs[-1]
-    if isinstance(last_msg, AIMessage) and last_msg.additional_kwargs.get("final_answer", False):
-        return END
-        
-    if isinstance(last_msg, AIMessage) and hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+    
+    # Critical fix: Check for explicit tool transfers
+    if isinstance(last_msg, ToolMessage) and hasattr(last_msg, 'goto'):
+        return END  # Transfer handled by supervisor
+    
+    # Existing logic with enhanced validation
+    if isinstance(last_msg, AIMessage):
+        if last_msg.additional_kwargs.get("final_answer", False):
+            return END
+        if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+            return "tools"
+    
+    # New: Handle intermediate tool responses
+    if any(isinstance(msg, ToolMessage) for msg in msgs):
         return "tools"
+    
     return END
 
 # Add nodes to the graph
