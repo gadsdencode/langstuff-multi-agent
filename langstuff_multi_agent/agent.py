@@ -1,4 +1,3 @@
-# langstuff_multi_agent/agent.py
 """
 Main agent module that exports the graph for LangGraph Studio.
 
@@ -8,6 +7,7 @@ by isolating internal subgraphs.
 """
 
 import logging
+import threading
 from langstuff_multi_agent.agents.debugger import debugger_graph
 from langstuff_multi_agent.agents.context_manager import context_manager_graph
 from langstuff_multi_agent.agents.project_manager import project_manager_graph
@@ -34,8 +34,7 @@ from langstuff_multi_agent.agents.creative_content import (
 from langstuff_multi_agent.agents.financial_analyst import (
     financial_analyst_graph
 )
-import threading
-from langstuff_multi_agent.agents.supervisor import create_supervisor, member_graphs
+from langstuff_multi_agent.agents.supervisor import create_supervisor
 from langstuff_multi_agent.config import Config, get_llm
 
 config = Config()
@@ -69,6 +68,8 @@ def create_agent_graphs():
     }
 
 
+member_graphs = create_agent_graphs()
+
 # Replace manual supervisor setup with official pattern
 supervisor_graph = create_supervisor(
     llm=get_llm(),
@@ -78,7 +79,7 @@ supervisor_graph = create_supervisor(
 
 # Export all graphs required by langgraph.json
 __all__ = [
-    "supervisor_graph",  # Renamed from supervisor_workflow
+    "supervisor_graph",  # Main graph, LangGraph Studio entry point
     "debugger_graph",
     "context_manager_graph",
     "project_manager_graph",
@@ -95,9 +96,10 @@ __all__ = [
     "financial_analyst_graph"
 ]
 
-# Add explicit graph alias for entry point
+# Explicitly define 'graph' as the main supervisor graph for LangGraph Studio entry point
 graph = supervisor_graph
-__all__.insert(0, "graph")  # Add to beginning of exports list
+__all__.insert(0, "graph")  # Ensure 'graph' is first in exports
+
 
 # Add monitoring after graph initialization
 available_agents = [  # Define available agents list
@@ -117,7 +119,7 @@ def monitor_agents():
         time.sleep(10)
 
 
-# Start monitoring thread
+# Start monitoring thread (optional for LangGraph functionality, but good for debugging)
 threading.Thread(target=monitor_agents, daemon=True).start()
 
 logger.info("Primary supervisor workflow successfully initialized.")
@@ -135,3 +137,19 @@ def handle_user_request(user_input: str, user_id: str):
             }
         }
     )
+
+# Export individual graphs for direct access (optional, but can be useful)
+debugger_graph = member_graphs["debugger"]
+context_manager_graph = member_graphs["context_manager"]
+project_manager_graph = member_graphs["project_manager"]
+professional_coach_graph = member_graphs["professional_coach"]
+life_coach_graph = member_graphs["life_coach"]
+coder_graph = member_graphs["coder"]
+analyst_graph = member_graphs["analyst"]
+researcher_graph = member_graphs["researcher"]
+general_assistant_graph = member_graphs["general_assistant"]
+news_reporter_graph = member_graphs["news_reporter"]
+customer_support_graph = member_graphs["customer_support"]
+marketing_strategist_graph = member_graphs["marketing_strategist"]
+creative_content_graph = member_graphs["creative_content"]
+financial_analyst_graph = member_graphs["financial_analyst"]

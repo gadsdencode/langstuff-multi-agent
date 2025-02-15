@@ -5,20 +5,20 @@
     "entry_point": "./langstuff_multi_agent/agent.py:graph",
     "graphs": {
         "main": "./langstuff_multi_agent/agent.py:graph",
-        "debugger": "./langstuff_multi_agent/agent.py:debugger_graph",
-        "context_manager": "./langstuff_multi_agent/agent.py:context_manager_graph",
-        "project_manager": "./langstuff_multi_agent/agent.py:project_manager_graph",
-        "professional_coach": "./langstuff_multi_agent/agent.py:professional_coach_graph",
-        "life_coach": "./langstuff_multi_agent/agent.py:life_coach_graph",
-        "coder": "./langstuff_multi_agent/agent.py:coder_graph",
-        "analyst": "./langstuff_multi_agent/agent.py:analyst_graph",
-        "researcher": "./langstuff_multi_agent/agent.py:researcher_graph",
-        "general_assistant": "./langstuff_multi_agent/agent.py:general_assistant_graph",
-        "news_reporter": "./langstuff_multi_agent/agent.py:news_reporter_graph",
-        "customer_support": "./langstuff_multi_agent/agent.py:customer_support_graph",
-        "marketing_strategist": "./langstuff_multi_agent/agent.py:marketing_strategist_graph",
-        "creative_content": "./langstuff_multi_agent/agent.py:creative_content_graph",
-        "financial_analyst": "./langstuff_multi_agent/agent.py:financial_analyst_graph"
+        "debugger_graph": "./langstuff_multi_agent/agent.py:debugger_graph",
+        "context_manager_graph": "./langstuff_multi_agent/agent.py:context_manager_graph",
+        "project_manager_graph": "./langstuff_multi_agent/agent.py:project_manager_graph",
+        "professional_coach_graph": "./langstuff_multi_agent/agent.py:professional_coach_graph",
+        "life_coach_graph": "./langstuff_multi_agent/agent.py:life_coach_graph",
+        "coder_graph": "./langstuff_multi_agent/agent.py:coder_graph",
+        "analyst_graph": "./langstuff_multi_agent/agent.py:analyst_graph",
+        "researcher_graph": "./langstuff_multi_agent/agent.py:researcher_graph",
+        "general_assistant_graph": "./langstuff_multi_agent/agent.py:general_assistant_graph",
+        "news_reporter_graph": "./langstuff_multi_agent/agent.py:news_reporter_graph",
+        "customer_support_graph": "./langstuff_multi_agent/agent.py:customer_support_graph",
+        "marketing_strategist_graph": "./langstuff_multi_agent/agent.py:marketing_strategist_graph",
+        "creative_content_graph": "./langstuff_multi_agent/agent.py:creative_content_graph",
+        "financial_analyst_graph": "./langstuff_multi_agent/agent.py:financial_analyst_graph"
     },
     "agents": [
         {
@@ -30,85 +30,85 @@
         {
             "name": "DEBUGGER",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "debugger",
+            "graph": "debugger_graph",
             "description": "Agent responsible for debugging code."
         },
         {
             "name": "CONTEXT_MANAGER",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "context_manager",
+            "graph": "context_manager_graph",
             "description": "Agent responsible for managing conversation context."
         },
         {
             "name": "PROJECT_MANAGER",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "project_manager",
+            "graph": "project_manager_graph",
             "description": "Agent responsible for managing project timelines and tasks."
         },
         {
             "name": "PROFESSIONAL_COACH",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "professional_coach",
+            "graph": "professional_coach_graph",
             "description": "Agent providing professional and career guidance."
         },
         {
             "name": "LIFE_COACH",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "life_coach",
+            "graph": "life_coach_graph",
             "description": "Agent providing lifestyle and personal advice."
         },
         {
             "name": "CODER",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "coder",
+            "graph": "coder_graph",
             "description": "Agent that assists with coding tasks."
         },
         {
             "name": "ANALYST",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "analyst",
+            "graph": "analyst_graph",
             "description": "Agent specializing in data analysis."
         },
         {
             "name": "RESEARCHER",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "researcher",
+            "graph": "researcher_graph",
             "description": "Agent that gathers and summarizes research and news."
         },
         {
             "name": "GENERAL_ASSISTANT",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "general_assistant",
+            "graph": "general_assistant_graph",
             "description": "Agent for general queries and assistance."
         },
         {
             "name": "NEWS_REPORTER",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "news_reporter",
+            "graph": "news_reporter_graph",
             "description": "Agent that searches, researches, explains and summarizes news reports."
         },
         {
             "name": "CUSTOMER_SUPPORT",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "customer_support",
+            "graph": "customer_support_graph",
             "description": "Agent that provides customer support and assistance."
         },
         {
             "name": "MARKETING_STRATEGIST",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "marketing_strategist",
+            "graph": "marketing_strategist_graph",
             "description": "Agent that provides marketing strategy, insights, trends, and planning."
         },
         {
             "name": "CREATIVE_CONTENT",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "creative_content",
+            "graph": "creative_content_graph",
             "description": "Agent that provides creative content, marketing copy, social media posts, or brainstorming ideas."
         },
         {
             "name": "FINANCIAL_ANALYST",
             "file": "./langstuff_multi_agent/agent.py",
-            "graph": "financial_analyst",
+            "graph": "financial_analyst_graph",
             "description": "Agent that provides financial analysis, market data, forecasting, and investment insights."
         }
     ],
@@ -141,4 +141,3 @@
         }
     }
 }
-  
