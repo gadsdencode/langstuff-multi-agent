@@ -1,4 +1,3 @@
-# news_reporter.py
 """
 Enhanced News Reporter Agent for LangGraph.
 """
@@ -60,25 +59,37 @@ def news_report(state, config):
         # Generate summary using LLM
         llm = get_llm(config.get("configurable", {}))
         summary = llm.invoke([
-            SystemMessage(content="You are a news reporter. Analyze the following articles and provide a comprehensive summary including key points and insights."),
+            SystemMessage(content=(
+                "You are a news reporter. Analyze these articles and provide a "
+                "comprehensive summary of the news. Include key points and insights."
+            )),
             HumanMessage(content="\n".join(article["content"] for article in articles))
         ])
-        final = AIMessage(
-            content=summary.content,
-            additional_kwargs={"final_answer": True}
-        )
-        return {"messages": messages + [final]}
+
+        # Return the final summary
+        return {
+            "__end__": END,
+            "messages": messages + [
+                AIMessage(content=summary.content)
+            ]
+        }
+
     except Exception as e:
         logger.error(f"Error fetching news: {str(e)}")
-        return {"messages": messages + [AIMessage(content=f"Error fetching news: {str(e)}")]}
+        return {
+            "messages": messages + [
+                AIMessage(content=f"Error fetching news: {str(e)}")
+            ]
+        }
 
 
-# Simplified graph structure: one node that runs news_report and then ends.
+# Simplified graph structure since we're doing direct fetching
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
 news_reporter_graph.add_node("news_report", news_report)
 news_reporter_graph.set_entry_point("news_report")
 news_reporter_graph.add_edge(START, "news_report")
 news_reporter_graph.add_edge("news_report", END)
+
 news_reporter_graph = news_reporter_graph.compile()
 
 __all__ = ["news_reporter_graph"]
