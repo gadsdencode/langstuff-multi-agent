@@ -40,16 +40,19 @@ def assist(state, config):
             "3. Provide clear, concise, and helpful responses."
         )
     }
-    response = llm.invoke(state["messages"] + [system_message])
-    return {"messages": [response]}
+    
+    # Check if we already have an AI response for this message
+    messages = state.get("messages", [])
+    if messages and messages[-1]["type"] == "ai":
+        # If we already responded, mark it as final and end
+        messages[-1]["additional_kwargs"] = {"final_answer": True}
+        return {"messages": messages}
+        
+    response = llm.invoke(messages + [system_message])
+    return {"messages": messages + [response]}
 
 def process_tool_results(state, config):
-    """Process tool outputs and return a final assistant response.
-
-    If tool calls exist, this node aggregates their outputs, calls the LLM,
-    marks the resulting assistant message as final, and returns a Command directing
-    execution to END—thus stopping the loop.
-    """
+    """Process tool outputs and return a final assistant response."""
     last_message = state["messages"][-1]
     tool_outputs = []
     if tool_calls := getattr(last_message, 'tool_calls', None):
@@ -65,6 +68,7 @@ def process_tool_results(state, config):
                     "tool_call_id": tc["id"],
                     "output": f"Tool execution failed: {str(e)}"
                 })
+        
         updated_messages = state["messages"] + [
             {
                 "role": "tool",
@@ -72,33 +76,38 @@ def process_tool_results(state, config):
                 "tool_call_id": to["tool_call_id"]
             } for to in tool_outputs
         ]
+        
         llm = get_llm(config.get("configurable", {}))
         final_response = llm.invoke(updated_messages)
-        final_assistant_message = {
-            "role": "assistant",
-            "content": final_response.content,
-            "additional_kwargs": {"final_answer": True}
-        }
-        # Return a Command that directs execution to END.
-        return Command(goto=END, update={"messages": updated_messages + [final_assistant_message]})
+        final_response["additional_kwargs"] = {"final_answer": True}
+        
+        return {"messages": updated_messages + [final_response]}
     return state
 
 # Add nodes to the graph
 general_assistant_graph.add_node("assist", assist)
 general_assistant_graph.add_node("tools", tool_node)
 general_assistant_graph.add_node("process_results", process_tool_results)
+
+# Set the entry point
 general_assistant_graph.set_entry_point("assist")
+
+# Add the initial edge
 general_assistant_graph.add_edge(START, "assist")
 
 def assist_edge_condition(state):
+    """Determine where to go after assist node"""
     msgs = state.get("messages", [])
     if not msgs:
         return "tools"
+    
     last_msg = msgs[-1]
     if getattr(last_msg, "additional_kwargs", {}).get("final_answer", False):
         return END
+        
     return "tools" if has_tool_calls(msgs) else END
 
+# Add conditional edges from assist
 general_assistant_graph.add_conditional_edges(
     "assist",
     assist_edge_condition,
@@ -108,18 +117,8 @@ general_assistant_graph.add_conditional_edges(
 # Add edge from tools to process_results
 general_assistant_graph.add_edge("tools", "process_results")
 
-# Add conditional edge from process_results that can go to END
-def process_results_edge(state):
-    last_msg = state["messages"][-1]
-    if getattr(last_msg, "additional_kwargs", {}).get("final_answer", False):
-        return END
-    return "assist"
-
-general_assistant_graph.add_conditional_edges(
-    "process_results",
-    process_results_edge,
-    {"assist": "assist", END: END}
-)
+# Add edge from process_results to END
+general_assistant_graph.add_edge("process_results", END)
 
 general_assistant_graph = general_assistant_graph.compile()
 
