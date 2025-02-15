@@ -97,8 +97,8 @@ def assist_edge_condition(state):
     if not msgs:
         return "tools"
     last_msg = msgs[-1]
-    # If the last message has been marked as final, then route to END.
-    if last_msg.get("additional_kwargs", {}).get("final_answer", False):
+    # Use getattr to safely access 'additional_kwargs' from an AIMessage object.
+    if getattr(last_msg, "additional_kwargs", {}).get("final_answer", False):
         return END
     # Otherwise, if there are tool calls, go to "tools"; else finish.
     return "tools" if has_tool_calls(msgs) else END
