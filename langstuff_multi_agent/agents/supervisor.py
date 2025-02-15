@@ -224,25 +224,35 @@ def create_supervisor(llm, members: list[str], member_graphs: dict, **kwargs) ->
         next: Literal[*options]  # type: ignore
 
     def _supervisor_logic(state: SupervisorState):
-        # Add debug logging
-        logger.debug(f"Supervisor state: {state.get('messages', [])[-1].content if state.get('messages') else 'No messages'}")
+        # Add debug logging with type checking
+        logger.debug(f"Supervisor state type: {type(state.get('messages', [])[-1]) if state.get('messages') else 'No messages'}")
         
-        if state["messages"]:
+        if state.get("messages"):
             last_msg = state["messages"][-1]
-            if isinstance(last_msg, ToolMessage) and hasattr(last_msg, 'goto'):
-                logger.info(f"Transferring to {last_msg.goto}")
+            # Handle both Message instances and raw dictionaries
+            if isinstance(last_msg, (ToolMessage, dict)) and 'goto' in (last_msg if isinstance(last_msg, dict) else last_msg.__dict__):
+                goto_target = last_msg['goto'] if isinstance(last_msg, dict) else last_msg.goto
+                logger.info(f"Transferring to {goto_target}")
                 return {
-                    "next": last_msg.goto,
+                    "next": goto_target,
                     "error_count": 0,
                     "metadata": state.get("metadata", {}),
                     "state": state.get("state", {})
                 }
         
-        # Enhanced validation for routing decisions
+        # Fix message content extraction
+        try:
+            last_message = state["messages"][-1]
+            message_content = last_message.content if isinstance(last_message, HumanMessage) else last_message.get('content', '')
+        except (KeyError, IndexError, AttributeError) as e:
+            logger.error(f"Message access error: {str(e)}")
+            message_content = ""
+
+        # Rest of the logic with proper content handling
         try:
             result = llm.with_structured_output(Router).invoke([
                 SystemMessage(content=system_prompt),
-                HumanMessage(content=state["messages"][-1].content)
+                HumanMessage(content=message_content)
             ])
             if result.next not in members:
                 logger.warning(f"Invalid agent {result.next} selected, using fallback")
