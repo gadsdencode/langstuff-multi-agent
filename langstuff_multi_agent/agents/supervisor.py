@@ -113,6 +113,7 @@ class RouterState(RouterInput):
     memories: List[str] = Field(default_factory=list, description="Relevant memory entries")
 
 def route_query(state: RouterState):
+    logger.info(f"route_query: Starting routing for message: {state.messages[-1].content if state.messages else 'No message'}") # Logging input message
     structured_llm = get_llm().bind_tools([RouteDecision])
     latest_message = state.messages[-1].content if state.messages else ""
     system = (
@@ -121,23 +122,33 @@ def route_query(state: RouterState):
         "Professional Coach, Life Coach, Coder, Analyst, Researcher, General Assistant, News Reporter, "
         "Customer Support, Marketing Strategist, Creative Content, Financial Analyst."
     )
-    decision = structured_llm.invoke([
-        SystemMessage(content=system),
-        HumanMessage(content=f"Route this query: {latest_message}")
-    ])
-    if decision.destination not in AVAILABLE_AGENTS:
-        logger.error(f"Invalid agent {decision.destination} selected")
+    try:
+        decision = structured_llm.invoke([
+            SystemMessage(content=system),
+            HumanMessage(content=f"Route this query: {latest_message}")
+        ])
+        logger.info(f"route_query: LLM Decision Output: {decision}") # Log LLM decision object
+        if decision.destination not in AVAILABLE_AGENTS:
+            logger.error(f"route_query: Invalid agent {decision.destination} selected by LLM. Fallback to general_assistant.")
+            return RouterState(
+                messages=state.messages,
+                destination="general_assistant",
+                reasoning="Fallback due to invalid agent selection"
+            )
+        else:
+            logger.info(f"route_query: Successfully routed to agent: {decision.destination}, Reasoning: {decision.reasoning}") # Log successful routing
+            return RouterState(
+                messages=state.messages,
+                reasoning=decision.reasoning,
+                destination=decision.destination,
+                memories=state.memories
+            )
+    except Exception as e:
+        logger.error(f"route_query: Exception during routing: {e}. Fallback to general_assistant.")
         return RouterState(
             messages=state.messages,
             destination="general_assistant",
-            reasoning="Fallback due to invalid agent selection"
-        )
-    else:
-        return RouterState(
-            messages=state.messages,
-            reasoning=decision.reasoning,
-            destination=decision.destination,
-            memories=state.memories
+            reasoning=f"Fallback due to routing error: {e}"
         )
 
 def process_tool_results(state, config):
@@ -195,30 +206,39 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
 2. Return FINISH only when ALL user needs are met.
 3. On errors, route to general_assistant.
 4. Never repeat a failed agent immediately."""
-    
+
     class Router(BaseModel):
         next: Literal[*options]  # type: ignore
 
     def _supervisor_logic(state: SupervisorState):
+        logger.info(f"_supervisor_logic: Input State: {state}") # Log input state
+
         # First, check if the last message is an AIMessage with final_answer and no pending tool_calls.
         if state["messages"]:
             last_msg = state["messages"][-1]
             if isinstance(last_msg, AIMessage) and last_msg.additional_kwargs.get("final_answer", False):
                 if not getattr(last_msg, "tool_calls", []):
+                    logger.info("_supervisor_logic: Reached FINISH state.") # Log FINISH condition
                     return {"next": "FINISH", "error_count": state.get("error_count", 0)}
                 else:
                     # Process pending tool calls before routing further.
-                    state = process_tool_results(state, config={})
+                    logger.info("_supervisor_logic: Processing tool results before routing.") # Log tool processing
+                    state_after_tools = process_tool_results(state, config={})
+                    logger.info(f"_supervisor_logic: State after tool processing: {state_after_tools}") # Log state after tool processing
+                    return state_after_tools # Return the state after tool processing for next iteration
         try:
             if state.get("error_count", 0) > 2:
+                logger.warning("_supervisor_logic: Error count exceeded. Routing to general_assistant.") # Log error count fallback
                 return {"next": "general_assistant", "error_count": 0}
+            logger.info("_supervisor_logic: Invoking LLM Router...") # Log LLM router invocation
             result = llm.with_structured_output(Router).invoke([
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=state["messages"][-1].content)
             ])
+            logger.info(f"_supervisor_logic: LLM Router Output: {result}") # Log LLM router output
             return result.dict()
         except Exception as e:
-            logger.critical(f"Supervisor failure: {str(e)}")
+            logger.critical(f"_supervisor_logic: Supervisor failure: {str(e)}. Routing to general_assistant.") # Log supervisor failure
             return {"next": "general_assistant", "error_count": state.get("error_count", 0) + 1}
 
     workflow = StateGraph(SupervisorState)
@@ -237,7 +257,6 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
         workflow.add_edge(member, "supervisor")
     workflow.set_entry_point("supervisor")
     return workflow
-
 
 # Initialize member graphs (including debugger if desired)
 member_graphs = {
