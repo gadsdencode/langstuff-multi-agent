@@ -106,7 +106,7 @@ def assist_edge_condition(state):
 general_assistant_graph.add_conditional_edges(
     "assist",
     assist_edge_condition,
-    {"tools": "tools", "END": END}
+    {"tools": "tools", END: END}
 )
 
 general_assistant_graph.add_edge("tools", "process_results")
