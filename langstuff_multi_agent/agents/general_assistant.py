@@ -14,6 +14,7 @@ from langstuff_multi_agent.utils.tools import search_web, get_current_weather, h
 from langchain_anthropic import ChatAnthropic
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langgraph.types import Command  # Use Command to control flow
+from langchain.schema import SystemMessage, AIMessage, ToolMessage
 
 # Initialize the graph with the MessagesState and configuration schema
 general_assistant_graph = StateGraph(MessagesState, ConfigSchema)
@@ -26,9 +27,8 @@ def assist(state, config):
     """Provide general assistance with configuration support."""
     llm = get_llm(config.get("configurable", {}))
     llm = llm.bind_tools(tools)
-    system_message = {
-        "role": "system",
-        "content": (
+    system_message = SystemMessage(
+        content=(
             "You are a General Assistant Agent. Your task is to assist with a variety of general queries and tasks.\n\n"
             "You have access to the following tools:\n"
             "- search_web: Provide general information and answer questions.\n"
@@ -39,13 +39,12 @@ def assist(state, config):
             "2. Use the available tools to gather relevant information when needed.\n"
             "3. Provide clear, concise, and helpful responses."
         )
-    }
+    )
     
-    # Check if we already have an AI response for this message
     messages = state.get("messages", [])
-    if messages and messages[-1]["type"] == "ai":
+    if messages and isinstance(messages[-1], AIMessage):
         # If we already responded, mark it as final and end
-        messages[-1]["additional_kwargs"] = {"final_answer": True}
+        messages[-1].additional_kwargs["final_answer"] = True
         return {"messages": messages}
         
     response = llm.invoke(messages + [system_message])
@@ -53,36 +52,57 @@ def assist(state, config):
 
 def process_tool_results(state, config):
     """Process tool outputs and return a final assistant response."""
-    last_message = state["messages"][-1]
+    messages = state.get("messages", [])
+    if not messages:
+        return state
+        
+    last_message = messages[-1]
     tool_outputs = []
-    if tool_calls := getattr(last_message, 'tool_calls', None):
-        for tc in tool_calls:
-            try:
-                output = f"Tool {tc['name']} result: {tc.get('output', '')}"
-                tool_outputs.append({
-                    "tool_call_id": tc["id"],
-                    "output": output
-                })
-            except Exception as e:
-                tool_outputs.append({
-                    "tool_call_id": tc["id"],
-                    "output": f"Tool execution failed: {str(e)}"
-                })
-        
-        updated_messages = state["messages"] + [
-            {
-                "role": "tool",
-                "content": to["output"],
-                "tool_call_id": to["tool_call_id"]
-            } for to in tool_outputs
-        ]
-        
-        llm = get_llm(config.get("configurable", {}))
-        final_response = llm.invoke(updated_messages)
-        final_response["additional_kwargs"] = {"final_answer": True}
-        
-        return {"messages": updated_messages + [final_response]}
+    
+    if isinstance(last_message, AIMessage) and hasattr(last_message, 'tool_calls'):
+        tool_calls = last_message.tool_calls
+        if tool_calls:
+            for tc in tool_calls:
+                try:
+                    output = f"Tool {tc.name} result: {tc.get('output', '')}"
+                    tool_outputs.append({
+                        "tool_call_id": tc.id,
+                        "output": output
+                    })
+                except Exception as e:
+                    tool_outputs.append({
+                        "tool_call_id": tc.id,
+                        "output": f"Tool execution failed: {str(e)}"
+                    })
+            
+            updated_messages = messages + [
+                ToolMessage(
+                    content=to["output"],
+                    tool_call_id=to["tool_call_id"]
+                ) for to in tool_outputs
+            ]
+            
+            llm = get_llm(config.get("configurable", {}))
+            final_response = llm.invoke(updated_messages)
+            if isinstance(final_response, AIMessage):
+                final_response.additional_kwargs["final_answer"] = True
+            
+            return {"messages": updated_messages + [final_response]}
     return state
+
+def assist_edge_condition(state):
+    """Determine where to go after assist node"""
+    msgs = state.get("messages", [])
+    if not msgs:
+        return "tools"
+    
+    last_msg = msgs[-1]
+    if isinstance(last_msg, AIMessage) and last_msg.additional_kwargs.get("final_answer", False):
+        return END
+        
+    if isinstance(last_msg, AIMessage) and hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+        return "tools"
+    return END
 
 # Add nodes to the graph
 general_assistant_graph.add_node("assist", assist)
@@ -94,18 +114,6 @@ general_assistant_graph.set_entry_point("assist")
 
 # Add the initial edge
 general_assistant_graph.add_edge(START, "assist")
-
-def assist_edge_condition(state):
-    """Determine where to go after assist node"""
-    msgs = state.get("messages", [])
-    if not msgs:
-        return "tools"
-    
-    last_msg = msgs[-1]
-    if getattr(last_msg, "additional_kwargs", {}).get("final_answer", False):
-        return END
-        
-    return "tools" if has_tool_calls(msgs) else END
 
 # Add conditional edges from assist
 general_assistant_graph.add_conditional_edges(
