@@ -5,7 +5,7 @@ General Assistant Agent module for handling diverse queries.
 This module provides a workflow for addressing general user requests
 using a variety of tools. In this revised version, we mark the final assistant 
 message with a 'final_answer' flag and (critically) remove any unconditional edge 
-that forces the loop to continue once termination is signaled.
+that forces the loop to continue, and we explicitly set the finish point to END.
 """
 
 from langgraph.graph import StateGraph, MessagesState, START, END
@@ -79,6 +79,7 @@ def process_tool_results(state, config):
             "content": final_response.content,
             "additional_kwargs": {"final_answer": True}
         }
+        # Return a Command that directs execution to END.
         return Command(goto=END, update={"messages": updated_messages + [final_assistant_message]})
     return state
 
@@ -104,8 +105,10 @@ general_assistant_graph.add_conditional_edges(
     {"tools": "tools", END: END}
 )
 
-# IMPORTANT: Do NOT add any unconditional edge from the "tools" node back to "assist"
-# Removing such edges allows the Command(goto=END) returned from process_tool_results to halt execution.
+# IMPORTANT: Do NOT add any unconditional edge from "tools" (or process_results) back to "assist".
+
+# Explicitly set the finish point to END so that when END is returned, the graph stops.
+general_assistant_graph.set_finish_point(END)
 
 general_assistant_graph = general_assistant_graph.compile()
 
