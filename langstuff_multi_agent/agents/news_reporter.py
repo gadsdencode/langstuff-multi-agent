@@ -83,12 +83,70 @@ def news_report(state, config):
         }
 
 
+def process_tool_results(state, config):
+    """Processes tool outputs, filters news, and formats final response."""
+    last_message = state["messages"][-1]
+    tool_outputs = []
+
+    if tool_calls := getattr(last_message, "tool_calls", None):
+        for tc in tool_calls:
+            if tc['name'] == 'news_tool':
+                try:
+                    # Assuming tc['output'] is a string with news headlines
+                    # Limit to first 5 headlines
+                    headlines = tc['output'].split('\n')[:5]
+                    output = "\n".join(headlines)
+                    tool_outputs.append({
+                        "tool_call_id": tc["id"],
+                        "output": output
+                    })
+                except Exception as e:
+                    tool_outputs.append({
+                        "tool_call_id": tc["id"],
+                        "error": f"Tool execution failed: {str(e)}"
+                    })
+            else:
+                # Handle other tools if any
+                pass
+
+        # Create messages with filtered tool outputs
+        updated_messages = state["messages"] + [
+            {
+                "role": "tool",
+                "content": to["output"],
+                "tool_call_id": to["tool_call_id"]
+            } for to in tool_outputs
+        ]
+
+        llm = get_llm(config.get("configurable", {}))
+        final_response = llm.invoke(updated_messages)
+        # Mark the final response as final
+        if hasattr(final_response, "additional_kwargs"):
+            final_response.additional_kwargs["final_answer"] = True
+        else:
+            final_response.additional_kwargs = {"final_answer": True}
+
+        return {
+            "messages": updated_messages + [
+                {
+                    "role": "assistant",
+                    "content": final_response.content,
+                    "additional_kwargs": final_response.additional_kwargs
+                }
+            ]
+        }
+
+    return state
+
+
 # Simplified graph structure since we're doing direct fetching
 news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
 news_reporter_graph.add_node("news_report", news_report)
+news_reporter_graph.add_node("process_results", process_tool_results)
 news_reporter_graph.set_entry_point("news_report")
 news_reporter_graph.add_edge(START, "news_report")
 news_reporter_graph.add_edge("news_report", END)
+news_reporter_graph.add_edge("news_report", "process_results")
 
 news_reporter_graph = news_reporter_graph.compile()
 
