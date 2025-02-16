@@ -247,14 +247,13 @@ def create_supervisor(
     state_type: Optional[type] = None,
     **kwargs
 ) -> StateGraph:
-    options = members + ["FINISH"]  # Used for runtime validation
+    options = members + ["FINISH"]
     system_prompt = f"""You manage these workers: {', '.join(members)}. Strict rules:
 1. Route complex queries through multiple agents sequentially.
 2. Return FINISH only when ALL user needs are met.
 3. On errors, route to general_assistant.
 4. Never repeat a failed agent immediately.
 """
-
     class Router(BaseModel):
         next: Literal[
             'debugger', 'context_manager', 'project_manager', 'professional_coach',
@@ -262,11 +261,9 @@ def create_supervisor(
             'news_reporter', 'customer_support', 'marketing_strategist',
             'creative_content', 'financial_analyst', 'FINISH'
         ]
-
     def _supervisor_logic(state: Dict[str, Any]):
         if state["messages"]:
             last_msg = state["messages"][-1]
-
             if isinstance(last_msg, AIMessage) and last_msg.additional_kwargs.get("final_answer", False):
                 if not getattr(last_msg, "tool_calls", []):
                     return {"next": "FINISH", "error_count": state.get("error_count", 0)}
@@ -280,45 +277,35 @@ def create_supervisor(
                     SystemMessage(content=system_prompt),
                     *state["messages"]
                 ])
-                # Validate the next destination is in our options
                 if result.next not in options:
                     logger.error(f"Invalid destination {result.next}")
                     return {"next": "general_assistant", "error_count": state.get("error_count", 0) + 1, "messages": state["messages"]}
-                return {"next": result.next, "error_count": state.get("error_count", 0), "messages": state["messages"]}
+                # Compute final target: if destination is FINISH, map to END.
+                final_next = result.next if result.next != "FINISH" else END
+                return {"next": final_next, "error_count": state.get("error_count", 0), "messages": state["messages"]}
             except Exception as e:
                 logger.critical(f"Supervisor failure: {str(e)}")
                 return {"next": "general_assistant", "error_count": state.get("error_count", 0) + 1, "messages": state["messages"]}
         else:
-            return {"next": "FINISH"}
-
-    # Use provided state_type or default to Dict[str, Any]
+            return {"next": END}
     workflow = StateGraph(state_type if state_type is not None else Dict[str, Any])
     workflow.add_node("supervisor", _supervisor_logic)
-    
     for name in members:
         workflow.add_node(
             name,
             member_graphs[name].with_retry(stop_after_attempt=2, wait_exponential_jitter=True)
         )
-    
+    # Update conditional edge: use a branch selector lambda that returns the final target node directly.
     workflow.add_conditional_edges(
         "supervisor",
-        should_continue,
-        {
-            "continue": lambda x: x["next"] if x["next"] != "FINISH" else END,
-            "end": END
-        }
+        lambda state: END if should_continue(state) == "end" else state["next"],
+        {}  # Empty mapping since the lambda now computes the target directly.
     )
-    
     for member in members:
         workflow.add_edge(member, "supervisor")
-    
     workflow.set_entry_point("supervisor")
-    
-    # If input_type is provided, configure it
     if input_type is not None:
         workflow.input_type = input_type
-    
     return workflow
 
 
