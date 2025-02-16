@@ -1,9 +1,23 @@
 # langstuff_multi_agent/supervisor.py
 from langgraph.graph import StateGraph, END
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage, BaseMessage
+from langchain_core.messages import (
+    HumanMessage,
+    AIMessage,
+    ToolMessage,
+    SystemMessage,
+    BaseMessage
+)
 from langstuff_multi_agent.config import get_llm
-from typing import Literal, Optional, List, TypedDict, Dict, Any
-from pydantic import BaseModel, Field
+from typing import (
+    Literal,
+    Optional,
+    List,
+    TypedDict,
+    Dict,
+    Any,
+    Type
+)
+from pydantic.v1 import BaseModel, Field
 import re
 import uuid
 from langchain_community.tools import tool
@@ -227,7 +241,14 @@ def should_continue(state: Dict[str, Any]) -> str:
 # def end_state(state: RouterState): # No longer needed
 #    return state
 
-def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dict, **kwargs) -> StateGraph:
+def create_supervisor(
+    llm: BaseChatModel,
+    members: list[str],
+    member_graphs: dict,
+    input_type: Optional[type] = None,
+    state_type: Optional[type] = None,
+    **kwargs
+) -> StateGraph:
     options = members + ["FINISH"]  # Used for runtime validation
     system_prompt = f"""You manage these workers: {', '.join(members)}. Strict rules:
 1. Route complex queries through multiple agents sequentially.
@@ -244,7 +265,7 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
             'creative_content', 'financial_analyst', 'FINISH'
         ]
 
-    def _supervisor_logic(state: SupervisorState):
+    def _supervisor_logic(state: Dict[str, Any]):
         if state["messages"]:
             last_msg = state["messages"][-1]
 
@@ -272,25 +293,34 @@ def create_supervisor(llm: BaseChatModel, members: list[str], member_graphs: dic
         else:
             return {"next": "FINISH"}
 
-    workflow = StateGraph(SupervisorState)
+    # Use provided state_type or default to Dict[str, Any]
+    workflow = StateGraph(state_type if state_type is not None else Dict[str, Any])
     workflow.add_node("supervisor", _supervisor_logic)
+    
     for name in members:
         workflow.add_node(
             name,
             member_graphs[name].with_retry(stop_after_attempt=2, wait_exponential_jitter=True)
         )
+    
     workflow.add_conditional_edges(
         "supervisor",
-        should_continue,  # Simplified
+        should_continue,
         {
             "continue": lambda x: x["next"] if x["next"] != "FINISH" else END,
             "end": END
         }
-
     )
+    
     for member in members:
         workflow.add_edge(member, "supervisor")
+    
     workflow.set_entry_point("supervisor")
+    
+    # If input_type is provided, configure it
+    if input_type is not None:
+        workflow.input_type = input_type
+    
     return workflow
 
 

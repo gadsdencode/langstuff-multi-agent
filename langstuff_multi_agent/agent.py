@@ -14,12 +14,11 @@ from langstuff_multi_agent.agents.customer_support import customer_support_graph
 from langstuff_multi_agent.agents.marketing_strategist import marketing_strategist_graph
 from langstuff_multi_agent.agents.creative_content import creative_content_graph
 from langstuff_multi_agent.agents.financial_analyst import financial_analyst_graph
-from langstuff_multi_agent.agents.supervisor import create_supervisor, member_graphs  # Import member_graphs
+from langstuff_multi_agent.agents.supervisor import create_supervisor, member_graphs
 from langstuff_multi_agent.config import Config, get_llm
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from pydantic.v1 import BaseModel, Field  # Use v1 explicitly for compatibility
+from typing import List, Optional, Dict, Any, TypedDict
 from langchain_core.messages import BaseMessage
-from typing_extensions import TypedDict
 
 config = Config()
 
@@ -37,10 +36,13 @@ logger.info("Initializing primary supervisor workflow...")
 # --- Input Schema Definition ---
 class GraphInput(BaseModel):
     """Input for the multi-agent graph."""
-    messages: List[Dict[str, Any]] = Field(..., description="User messages to route") # List of dictionaries
-    config: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Configuration for the graph, like user_id") #For the configurable part
-    #metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Metadata for the conversation") # No longer necessary, it goes into config
-    #state: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Initial state of the graph. Not directly used, managed internally.") No longer necessary
+    messages: List[Dict[str, Any]] = Field(
+        ..., description="User messages to route"
+    )
+    config: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Configuration for the graph, like user_id"
+    )
 
 
 # --- Supervisor State ---
@@ -49,10 +51,9 @@ class SupervisorState(TypedDict):
     next: str
     error_count: int
     reasoning: Optional[str]
-    # Add any other state variables your supervisor needs here
 
 
-# --- Create Agent Graphs (This part seems fine, just minor cleanup) ---
+# --- Create Agent Graphs ---
 def create_agent_graphs():
     return {
         "debugger": debugger_graph,
@@ -73,17 +74,17 @@ def create_agent_graphs():
 
 
 # --- Create Supervisor Graph ---
-# We're defining the input schema *here*
 supervisor_graph = create_supervisor(
     llm=get_llm(),
     members=list(member_graphs.keys()),
-    member_graphs=member_graphs
-).with_types(input_type=GraphInput, state_type=SupervisorState)  # Explicitly set input and state types
-
+    member_graphs=member_graphs,
+    input_type=GraphInput,  # Pass types directly to create_supervisor
+    state_type=SupervisorState
+)
 
 # --- Exports and Aliases ---
 __all__ = [
-    "supervisor_graph",  # Renamed from supervisor_workflow
+    "supervisor_graph",
     "debugger_graph",
     "context_manager_graph",
     "project_manager_graph",
@@ -102,11 +103,6 @@ __all__ = [
 
 # Add explicit graph alias for entry point
 graph = supervisor_graph
-__all__.insert(0, "graph")  # Add to beginning of exports list
-
-
-# --- Remove Unnecessary Code ---
-# Remove monitor_agents and handle_user_request (they are not used in LangGraph platform)
-# available_agents and the monitoring thread are not needed for LangGraph platform deployments.
+__all__.insert(0, "graph")
 
 logger.info("Primary supervisor workflow successfully initialized.")
