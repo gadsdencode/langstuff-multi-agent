@@ -17,7 +17,6 @@ from typing import (
     Any,
     Type
 )
-from pydantic.v1 import BaseModel, Field
 import re
 import uuid
 from langchain_community.tools import tool
@@ -30,9 +29,8 @@ import logging
 import operator
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph.message import AnyMessage, add_messages
-#from langgraph.prebuilt import create_react_agent # Removed as it's not directly used here
 from langchain_core.runnables import RunnableConfig
-from langchain_core.pydantic_v1 import BaseModel, Field #need to use pydantic_v1 for now
+from pydantic import BaseModel, Field
 
 
 # Import member graphs (including debugger if needed)

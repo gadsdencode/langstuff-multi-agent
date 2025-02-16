@@ -16,7 +16,7 @@ from langstuff_multi_agent.agents.creative_content import creative_content_graph
 from langstuff_multi_agent.agents.financial_analyst import financial_analyst_graph
 from langstuff_multi_agent.agents.supervisor import create_supervisor, member_graphs
 from langstuff_multi_agent.config import Config, get_llm
-from pydantic.v1 import BaseModel, Field  # Use v1 explicitly for compatibility
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, TypedDict
 from langchain_core.messages import BaseMessage
 
