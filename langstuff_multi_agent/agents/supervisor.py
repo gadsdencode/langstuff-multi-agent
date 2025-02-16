@@ -134,72 +134,100 @@ class SupervisorState(TypedDict):
 
 
 def route_query(state: SupervisorState):
-    structured_llm = get_llm().bind_tools([RouteDecision])
-    #latest_message = state["messages"][-1].content if state["messages"] else "" # Extract the content
-    latest_message = ""
-    if state["messages"]:
-        if isinstance(state["messages"][-1], HumanMessage):
-            latest_message = state["messages"][-1].content
-        elif isinstance(state["messages"][-1], dict):
-            latest_message = state["messages"][-1].get("content", "")
+    """Route user query to appropriate agent."""
+    messages = state.get("messages", [])
+    if not messages:
+        return {
+            "messages": messages,
+            "next": "general_assistant",
+            "error_count": 0,
+            "reasoning": "No messages to route"
+        }
 
+    # Get latest message content
+    latest_message = ""
+    if isinstance(messages[-1], HumanMessage):
+        latest_message = messages[-1].content
+    elif isinstance(messages[-1], dict):
+        latest_message = messages[-1].get("content", "")
+
+    # Get LLM with structured output
+    llm = get_llm()
     system = (
         "You are an expert router for a multi-agent system. Analyze the user's query "
         "and route to ONE specialized agent from the following: Context Manager, Project Manager, "
         "Professional Coach, Life Coach, Coder, Analyst, Researcher, General Assistant, News Reporter, "
         "Customer Support, Marketing Strategist, Creative Content, Financial Analyst."
     )
-    decision = structured_llm.invoke([
-        SystemMessage(content=system),
-        HumanMessage(content=f"Route this query: {latest_message}")
-    ])
-    if decision.destination not in AVAILABLE_AGENTS:
-        logger.error(f"Invalid agent {decision.destination} selected")
+
+    try:
+        # Define structured output
+        class RouteDecision(BaseModel):
+            reasoning: str = Field(..., description="Step-by-step routing logic")
+            destination: Literal[tuple(AVAILABLE_AGENTS)] = Field(..., description="Target agent")
+
+        decision = llm.with_structured_output(RouteDecision).invoke([
+            SystemMessage(content=system),
+            HumanMessage(content=f"Route this query: {latest_message}")
+        ])
+
+        if decision.destination not in AVAILABLE_AGENTS:
+            logger.error(f"Invalid agent {decision.destination} selected")
+            return {
+                "messages": messages,
+                "next": "general_assistant",
+                "reasoning": "Fallback due to invalid agent selection",
+                "error_count": state.get("error_count", 0) + 1
+            }
+
         return {
-            "messages": state["messages"],
-            "next": "general_assistant",
-            "reasoning": "Fallback due to invalid agent selection",  # added reasoning to the state
-            "error_count": state.get("error_count", 0)
-        }
-    else:
-        return {
-            "messages": state["messages"],
-            "reasoning": decision.reasoning,  # Added reasoning
+            "messages": messages,
+            "reasoning": decision.reasoning,
             "next": decision.destination,
             "error_count": state.get("error_count", 0)
-           # "memories": state.get("memories", []) #Removed memories
+        }
+
+    except Exception as e:
+        logger.error(f"Routing error: {str(e)}")
+        return {
+            "messages": messages,
+            "next": "general_assistant",
+            "reasoning": f"Error during routing: {str(e)}",
+            "error_count": state.get("error_count", 0) + 1
         }
 
 
 def process_tool_results(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
-    """Process any pending tool calls in the message chain."""
-    messages = state["messages"]
+    """Process tool results and update state."""
+    messages = state.get("messages", [])
     if not messages:
-        return {"messages": []}
+        return state
 
     last_message = messages[-1]
+    if not (isinstance(last_message, AIMessage) and getattr(last_message, "tool_calls", None)):
+        return state
 
-    # If there are no tool calls, just return the messages as is.
-    if not (isinstance(last_message, AIMessage) and last_message.tool_calls):
-        return {"messages": messages}
-
-    tool_calls = last_message.tool_calls
-    tool_outputs = []
-    final_messages = messages[:-1]  # Start with all but last message
-
-    if "reasoning" in state:  # Adds the reasoning
+    # Add reasoning if present
+    final_messages = messages[:-1]
+    if state.get("reasoning"):
         final_messages.append(AIMessage(content=f"Routing Reason: {state['reasoning']}"))
 
-    for tc in tool_calls:
-
-        if tc['name'].startswith('transfer_to_'):
-            agent_name = tc['name'].replace('transfer_to_', '')
-            return {"messages": messages, "next": agent_name}  # Use "next" for routing
-
+    # Process tool calls
+    tool_outputs = []
+    for tc in last_message.tool_calls:
         try:
-            # In a real application, you would execute the tool here.
-            # For this example, we just mock the output.
-            output = f"Tool {tc['name']} result: (Mocked output)"
+            # Handle transfer tools
+            if tc["name"].startswith("transfer_to_"):
+                agent = tc["name"].replace("transfer_to_", "")
+                if agent in AVAILABLE_AGENTS:
+                    return {
+                        "messages": messages,
+                        "next": agent,
+                        "error_count": state.get("error_count", 0)
+                    }
+            
+            # Mock other tool outputs
+            output = f"Tool {tc['name']} executed successfully"
             tool_outputs.append({
                 "tool_call_id": tc["id"],
                 "output": output,
@@ -213,27 +241,40 @@ def process_tool_results(state: Dict[str, Any], config: RunnableConfig) -> Dict[
                 "name": tc["name"]
             })
 
-    # Add ToolMessages for each tool output
+    # Add tool messages
     for to in tool_outputs:
-        final_messages.append(ToolMessage(content=to["output"], tool_call_id=to["tool_call_id"], name = to["name"]))
+        final_messages.append(
+            ToolMessage(
+                content=to["output"],
+                tool_call_id=to["tool_call_id"],
+                name=to["name"]
+            )
+        )
 
-    return {"messages": final_messages}
+    return {
+        "messages": final_messages,
+        "next": state.get("next", "general_assistant"),
+        "error_count": state.get("error_count", 0)
+    }
 
 
 def should_continue(state: Dict[str, Any]) -> str:
-    """Determines if the graph should continue based on the last message."""
+    """Determine if processing should continue."""
     messages = state.get("messages", [])
     if not messages:
-        return "continue"  # Changed to return strings
+        return "continue"
 
     last_message = messages[-1]
-    # Only consider the conversation final if the last message is an AI message
-    # marked as a final answer and has no pending tool calls.
-    if isinstance(last_message, AIMessage) and last_message.additional_kwargs.get("final_answer", False):
-        if not getattr(last_message, "tool_calls", []):
-            return "end"  # Changed to return strings
+    if isinstance(last_message, AIMessage):
+        # Check for final answer flag
+        if last_message.additional_kwargs.get("final_answer", False):
+            if not getattr(last_message, "tool_calls", []):
+                return "end"
+        # Check for too many errors
+        if state.get("error_count", 0) > 2:
+            return "end"
 
-    return "continue"  # Changed to return strings
+    return "continue"
 
 
 # def end_state(state: RouterState): # No longer needed
@@ -247,66 +288,40 @@ def create_supervisor(
     state_type: Optional[type] = None,
     **kwargs
 ) -> StateGraph:
-    options = members + ["FINISH"]
-    system_prompt = f"""You manage these workers: {', '.join(members)}. Strict rules:
-1. Route complex queries through multiple agents sequentially.
-2. Return FINISH only when ALL user needs are met.
-3. On errors, route to general_assistant.
-4. Never repeat a failed agent immediately.
-"""
-    class Router(BaseModel):
-        next: Literal[
-            'debugger', 'context_manager', 'project_manager', 'professional_coach',
-            'life_coach', 'coder', 'analyst', 'researcher', 'general_assistant',
-            'news_reporter', 'customer_support', 'marketing_strategist',
-            'creative_content', 'financial_analyst', 'FINISH'
-        ]
-    def _supervisor_logic(state: Dict[str, Any]):
-        if state["messages"]:
-            last_msg = state["messages"][-1]
-            if isinstance(last_msg, AIMessage) and last_msg.additional_kwargs.get("final_answer", False):
-                if not getattr(last_msg, "tool_calls", []):
-                    return {"next": "FINISH", "error_count": state.get("error_count", 0)}
-            if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", []):
-                return process_tool_results(state, config={})
-        if should_continue(state) == "continue":
-            try:
-                if state.get("error_count", 0) > 2:
-                    return {"next": "general_assistant", "error_count": 0, "messages": state["messages"]}
-                result = llm.with_structured_output(Router).invoke([
-                    SystemMessage(content=system_prompt),
-                    *state["messages"]
-                ])
-                if result.next not in options:
-                    logger.error(f"Invalid destination {result.next}")
-                    return {"next": "general_assistant", "error_count": state.get("error_count", 0) + 1, "messages": state["messages"]}
-                # Compute final target: if destination is FINISH, map to END.
-                final_next = result.next if result.next != "FINISH" else END
-                return {"next": final_next, "error_count": state.get("error_count", 0), "messages": state["messages"]}
-            except Exception as e:
-                logger.critical(f"Supervisor failure: {str(e)}")
-                return {"next": "general_assistant", "error_count": state.get("error_count", 0) + 1, "messages": state["messages"]}
-        else:
-            return {"next": END}
+    """Create supervisor workflow."""
+    # Initialize graph
     workflow = StateGraph(state_type if state_type is not None else Dict[str, Any])
-    workflow.add_node("supervisor", _supervisor_logic)
+    
+    # Add nodes
+    workflow.add_node("supervisor", route_query)
+    workflow.add_node("process_results", process_tool_results)
+    
+    # Add member nodes
     for name in members:
         workflow.add_node(
             name,
             member_graphs[name].with_retry(stop_after_attempt=2, wait_exponential_jitter=True)
         )
-    # Update conditional edge: use a branch selector lambda that returns the final target node directly.
+    
+    # Set entry point
+    workflow.set_entry_point("supervisor")
+    
+    # Add edges
     workflow.add_conditional_edges(
         "supervisor",
-        lambda state: END if should_continue(state) == "end" else state["next"],
-        {}  # Empty mapping since the lambda now computes the target directly.
+        lambda state: state.get("next", END),
+        {member: member for member in members} | {"END": END}
     )
+    
+    # Add edges from members back to supervisor
     for member in members:
-        workflow.add_edge(member, "supervisor")
-    workflow.set_entry_point("supervisor")
+        workflow.add_edge(member, "process_results")
+        workflow.add_edge("process_results", "supervisor")
+    
     if input_type is not None:
         workflow.input_type = input_type
-    return workflow
+        
+    return workflow.compile()
 
 
 # Initialize member graphs (including debugger if desired)
