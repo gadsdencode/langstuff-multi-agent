@@ -23,28 +23,31 @@ def assist(state, config):
     """Provide general assistance with configuration support."""
     llm = get_llm(config.get("configurable", {}))
     llm = llm.bind_tools(tools)
-    return {
-        "messages": [
-            llm.invoke(
-                state["messages"] + [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a General Assistant Agent. Your task is to assist with a variety of general queries and tasks.\n\n"
-                            "You have access to the following tools:\n"
-                            "- search_web: Provide general information and answer questions.\n"
-                            "- get_current_weather: Retrieve current weather updates.\n"
-                            "- news_tool: Retrieve news headlines and articles.\n\n"
-                            "Instructions:\n"
-                            "1. Understand the user's request.\n"
-                            "2. Use the available tools to gather relevant information when needed.\n"
-                            "3. Provide clear, concise, and helpful responses to assist the user."
-                        ),
-                    }
-                ]
-            )
+    response = llm.invoke(
+        state["messages"] + [
+            {
+                "role": "system",
+                "content": (
+                    "You are a General Assistant Agent. Your task is to assist with a variety of general queries and tasks.\n\n"
+                    "You have access to the following tools:\n"
+                    "- search_web: Provide general information and answer questions.\n"
+                    "- get_current_weather: Retrieve current weather updates.\n"
+                    "- news_tool: Retrieve news headlines and articles.\n\n"
+                    "Instructions:\n"
+                    "1. Understand the user's request.\n"
+                    "2. Use the available tools to gather relevant information when needed.\n"
+                    "3. Provide clear, concise, and helpful responses to assist the user."
+                ),
+            }
         ]
-    }
+    )
+    # If no tool calls are returned, mark the response as final
+    if not getattr(response, "tool_calls", []):
+        if hasattr(response, "additional_kwargs"):
+            response.additional_kwargs["final_answer"] = True
+        else:
+            response.additional_kwargs = {"final_answer": True}
+    return {"messages": [response]}
 
 
 def process_tool_results(state, config):
@@ -52,7 +55,7 @@ def process_tool_results(state, config):
     last_message = state["messages"][-1]
     tool_outputs = []
 
-    if tool_calls := getattr(last_message, 'tool_calls', None):
+    if tool_calls := getattr(last_message, "tool_calls", None):
         for tc in tool_calls:
             try:
                 output = f"Tool {tc['name']} result: {tc['output']}"
@@ -77,12 +80,18 @@ def process_tool_results(state, config):
 
         llm = get_llm(config.get("configurable", {}))
         final_response = llm.invoke(updated_messages)
+        # Mark the final response as final
+        if hasattr(final_response, "additional_kwargs"):
+            final_response.additional_kwargs["final_answer"] = True
+        else:
+            final_response.additional_kwargs = {"final_answer": True}
 
         return {
             "messages": updated_messages + [
                 {
                     "role": "assistant",
-                    "content": final_response.content
+                    "content": final_response.content,
+                    "additional_kwargs": final_response.additional_kwargs
                 }
             ]
         }
