@@ -22,9 +22,9 @@ class MemoryTriple(TypedDict):
 
 
 class SupervisorState(TypedDict):
-    messages: Annotated[List[BaseMessage], operator.add, add_messages]  # Updated to match supervisor.py
+    messages: Annotated[List[BaseMessage], operator.add, add_messages]
     next: str
-    error_count: int  # No reducer needed here in memory.py
+    error_count: Annotated[int, operator.add]  # Updated to match supervisor.py
     reasoning: Optional[str]
     memory_triples: List[MemoryTriple]
 
