@@ -3,7 +3,7 @@ Entry point for the LangGraph multi-agent system.
 """
 
 import logging
-from langstuff_multi_agent.supervisor import create_supervisor
+from langstuff_multi_agent.agents.supervisor import create_supervisor
 from langstuff_multi_agent.config import get_llm
 from langstuff_multi_agent.utils.memory import SupervisorState
 from langgraph.checkpoint.memory import MemorySaver
