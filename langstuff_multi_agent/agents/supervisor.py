@@ -144,11 +144,12 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
     options = AVAILABLE_AGENTS + ["FINISH"]
     system_prompt = (
         f"You manage these workers: {', '.join(AVAILABLE_AGENTS)}. "
-        "Analyze the query and route to ONE specialized agent or FINISH if all needs are met.\n"
+        "Analyze the query and route to ONE specialized agent or FINISH if the task is fully resolved.\n"
         "Rules:\n"
         "1. Route complex queries through multiple agents sequentially if needed.\n"
-        "2. Use FINISH only when the task is fully resolved.\n"
-        "3. On errors or uncertainty, route to general_assistant.\n"
+        "2. Use FINISH only when an agent has provided a complete response (marked as final_answer).\n"
+        "3. For greetings, identity questions (e.g., 'who are you'), or vague/general queries, route to general_assistant.\n"
+        "4. On errors or uncertainty, route to general_assistant.\n"
         "Provide step-by-step reasoning and your decision."
     )
     structured_llm = get_llm().with_structured_output(RouteDecision)
