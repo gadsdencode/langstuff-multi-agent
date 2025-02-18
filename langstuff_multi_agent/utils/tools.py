@@ -196,8 +196,8 @@ def news_tool(topic: str) -> str:
     except requests.RequestException as e:
         return f"Error fetching news: {str(e)}"
 
-# Memory tools (will be finalized after memory.py)
-memory_manager = None  # Placeholder, set in memory.py
+# Memory tools
+memory_manager = None  # Initialized lazily
 
 @tool
 def save_memory(memories: List[Dict[str, str]], config: RunnableConfig) -> str:
@@ -221,7 +221,7 @@ def search_memories(query: str, config: RunnableConfig) -> List[str]:
     results = memory_manager.search_memories(user_id, query)
     return [f"{r['subject']} {r['predicate']} {r['object_']}" for r in results]
 
-# Tool node
+# Tool collection and node
 def get_tools():
     """Return list of all tools."""
     return [
@@ -232,4 +232,11 @@ def get_tools():
 
 tool_node = ToolNode(get_tools())
 
-__all__ = ["tool_node", "has_tool_calls", "get_tools"] + [t.__name__ for t in get_tools()]
+# Explicitly define tool names to avoid StructuredTool attribute issues
+tool_names = [
+    "search_web", "python_repl", "read_file", "write_file", "calendar_tool",
+    "task_tracker_tool", "job_search_tool", "get_current_weather", "calc_tool",
+    "news_tool", "save_memory", "search_memories"
+]
+
+__all__ = ["tool_node", "has_tool_calls", "get_tools"] + tool_names
