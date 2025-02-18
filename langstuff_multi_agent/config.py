@@ -41,16 +41,16 @@ class Config:
     MODEL_CONFIGS = {
         "anthropic": {"model_name": "claude-3-5-sonnet-20240620", "temperature": 0.0, "top_p": 0.9, "max_tokens": 4000},
         "openai": {"model_name": "gpt-4o-mini", "temperature": 0.4, "top_p": 0.9, "max_tokens": 4000},
-        "grok": {"model_name": "grok-2-1212", "temperature": 0.4, "top_p": 0.9, "max_tokens": 4000}  # Grok model
+        "grok": {"model_name": "grok-2-1212", "temperature": 0.4, "top_p": 0.9, "max_tokens": 4000}
     }
 
     # Logging
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-    # Checkpointer
+    # Checkpointer initialization
     MEMORY_MANAGER = MemoryManager()
-    PERSISTENT_CHECKPOINTER = LangGraphMemoryCheckpointer(MEMORY_MANAGER)
+    checkpointer = LangGraphMemoryCheckpointer(MEMORY_MANAGER)  # Changed to checkpointer for consistency
 
     @classmethod
     def get_api_key(cls, provider: str) -> str:
