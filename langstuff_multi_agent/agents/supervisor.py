@@ -58,13 +58,11 @@ member_graphs = {
     "financial_analyst": financial_analyst_graph
 }
 
-
 class SupervisorState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add, add_messages]
     next: str
     error_count: Annotated[int, operator.add]
     reasoning: Optional[str]
-
 
 class RouteDecision(BaseModel):
     """Routing decision with chain-of-thought reasoning"""
@@ -76,6 +74,21 @@ class RouteDecision(BaseModel):
         'creative_content', 'financial_analyst', 'FINISH'
     ] = Field(..., description="Target agent or FINISH")
 
+def preprocess_input(state: SupervisorState, config: RunnableConfig) -> Dict[str, Any]:
+    """Convert Studio input format to BaseMessage list."""
+    messages = state.get("messages", [])
+    if not messages:
+        # Handle Studio input format: [{"type": "human", "content": "..."}]
+        raw_input = state.get("messages", []) or [{"type": "human", "content": "Hello"}]
+        messages = []
+        for msg in raw_input:
+            role = msg.get("type", "human")
+            content = msg.get("content", "")
+            if role == "human":
+                messages.append(HumanMessage(content=content))
+            else:
+                messages.append(HumanMessage(content=content))  # Fallback
+    return {"messages": messages, "error_count": 0}
 
 def process_tool_results(state: SupervisorState, config: RunnableConfig) -> Dict[str, Any]:
     """Process any pending tool calls in the message chain."""
@@ -110,7 +123,6 @@ def process_tool_results(state: SupervisorState, config: RunnableConfig) -> Dict
         "error_count": state.get("error_count", 0),
         "reasoning": state.get("reasoning", None)
     }
-
 
 def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str, Any]:
     """Core supervisor logic to route queries or finalize the task."""
@@ -163,22 +175,22 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
             "reasoning": "Fallback to general_assistant due to routing failure"
         }
 
-
 def create_supervisor(
     llm: BaseChatModel,
     members: List[str],
     member_graphs: Dict[str, StateGraph],
-    input_type: Optional[type] = None,
     state_type: Optional[type] = None
 ) -> StateGraph:
     """Create and configure the supervisor workflow."""
     workflow = StateGraph(state_type or SupervisorState)
+    workflow.add_node("preprocess", preprocess_input)  # Added preprocessing node
     workflow.add_node("supervisor", supervisor_logic)
     for name in members:
         if name not in member_graphs:
             logger.error(f"Member {name} not found in member_graphs")
             continue
         workflow.add_node(name, member_graphs[name].with_retry(stop_after_attempt=2, wait_exponential_jitter=True))
+    workflow.add_edge("preprocess", "supervisor")  # Connect preprocess to supervisor
     workflow.add_conditional_edges(
         "supervisor",
         lambda state: state["next"],
@@ -186,11 +198,8 @@ def create_supervisor(
     )
     for member in members:
         workflow.add_edge(member, "supervisor")
-    workflow.set_entry_point("supervisor")
-    if input_type is not None:
-        workflow.input_type = input_type
+    workflow.set_entry_point("preprocess")  # Start at preprocess
     return workflow
-
 
 supervisor_workflow = create_supervisor(
     llm=get_llm(),

@@ -9,9 +9,8 @@ import logging
 from langstuff_multi_agent.agents.supervisor import create_supervisor, member_graphs
 from langstuff_multi_agent.config import Config, get_llm
 from langstuff_multi_agent.utils.memory import SupervisorState
-from pydantic.v1 import BaseModel, Field
-from typing import List, Optional, Dict, Any
-from langchain_core.messages import BaseMessage, HumanMessage
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import BaseMessage
 
 # Initialize configuration and logging
 config = Config()
@@ -20,42 +19,29 @@ logger = logging.getLogger(__name__)
 
 logger.info("Initializing primary supervisor workflow...")
 
-class GraphInput(BaseModel):
-    """Input schema for the multi-agent graph."""
-    messages: List[Dict[str, Any]] = Field(..., description="User messages to route")
-    config: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Configuration")
-
-    def to_messages(self) -> List[BaseMessage]:
-        """Convert input dictionaries to BaseMessage objects."""
-        messages = []
-        for msg in self.messages:
-            role = msg.get("type", "human")  # Use 'type' from Studio
-            content = msg.get("content", "")
-            if role == "human":
-                messages.append(HumanMessage(content=content))
-            else:
-                messages.append(HumanMessage(content=content))  # Fallback
-        return messages
-
-# Create and compile the supervisor graph
-supervisor_graph = create_supervisor(
-    llm=get_llm(),
-    members=list(member_graphs.keys()),
-    member_graphs=member_graphs,
-    input_type=GraphInput,
-    state_type=SupervisorState
-).compile(checkpointer=Config.checkpointer)
-
-# Override stream to handle input conversion
-def stream_with_conversion(input_data: Dict[str, Any], config: Dict[str, Any]):
-    graph_input = GraphInput(**input_data)
-    messages = graph_input.to_messages()
-    return supervisor_graph.stream({"messages": messages}, config)
+# Create and compile the supervisor graph with MemorySaver
+try:
+    supervisor_graph = create_supervisor(
+        llm=get_llm(),
+        members=list(member_graphs.keys()),
+        member_graphs=member_graphs,
+        state_type=SupervisorState
+    ).compile(checkpointer=MemorySaver())
+    logger.info("Graph compiled successfully")
+except Exception as e:
+    logger.error(f"Graph compilation failed: {str(e)}", exc_info=True)
+    raise
 
 # Alias for entry point (Studio uses 'graph')
 graph = supervisor_graph
-graph.stream = stream_with_conversion  # Override default stream method
 
 __all__ = ["graph", "supervisor_graph"] + list(member_graphs.keys())
 
 logger.info("Primary supervisor workflow successfully initialized.")
+
+# Optional: Test locally
+if __name__ == "__main__":
+    from langchain_core.messages import HumanMessage
+    test_input = {"messages": [HumanMessage(content="Test query")]}
+    result = graph.invoke(test_input)
+    print(result)
