@@ -5,12 +5,12 @@ Stores and retrieves conversation memories and full SupervisorState with persist
 
 import json
 import os
-from typing import List, TypedDict, Optional
+from typing import List, TypedDict, Optional, Dict
 from datetime import datetime, timedelta
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint
-from langchain_core.messages import BaseMessage, to_json_default, from_json_default
-from langgraph.graph.message import add_messages
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+
 
 class MemoryTriple(TypedDict):
     subject: str
@@ -18,12 +18,14 @@ class MemoryTriple(TypedDict):
     object_: str
     timestamp: str
 
+
 class SupervisorState(TypedDict):
-    messages: List[BaseMessage]  # Changed to match MessagesState
+    messages: List[BaseMessage]
     next: str
     error_count: int
     reasoning: Optional[str]
     memory_triples: List[MemoryTriple]
+
 
 class MemoryManager:
     def __init__(self, memory_path: str = "memory_store.json", state_dir: str = "state_store"):
@@ -63,7 +65,7 @@ class MemoryManager:
     def save_state(self, user_id: str, state: SupervisorState) -> None:
         """Save full SupervisorState to disk."""
         state_path = os.path.join(self.state_dir, f"{user_id}.json")
-        # Convert BaseMessage to JSON-serializable dicts
+        # Serialize BaseMessage objects to dictionaries
         serializable_state = {
             "messages": [msg.to_json() for msg in state["messages"]],
             "next": state["next"],
@@ -72,7 +74,7 @@ class MemoryManager:
             "memory_triples": state["memory_triples"]
         }
         with open(state_path, "w", encoding="utf-8") as f:
-            json.dump(serializable_state, f, default=to_json_default)
+            json.dump(serializable_state, f)
 
     def load_state(self, user_id: str) -> Optional[SupervisorState]:
         """Load full SupervisorState from disk."""
@@ -80,9 +82,27 @@ class MemoryManager:
         if os.path.exists(state_path):
             with open(state_path, "r", encoding="utf-8") as f:
                 serializable_state = json.load(f)
-                # Convert dicts back to BaseMessage
+                # Deserialize messages back to BaseMessage objects
+                messages = []
+                for msg_dict in serializable_state["messages"]:
+                    role = msg_dict.get("kwargs", {}).get("role") or msg_dict.get("type")
+                    content = msg_dict.get("kwargs", {}).get("content", "")
+                    if role == "human":
+                        messages.append(HumanMessage(content=content))
+                    elif role == "ai":
+                        messages.append(AIMessage(content=content))
+                    elif role == "system":
+                        messages.append(SystemMessage(content=content))
+                    elif role == "tool":
+                        messages.append(ToolMessage(
+                            content=content,
+                            tool_call_id=msg_dict.get("kwargs", {}).get("tool_call_id", ""),
+                            name=msg_dict.get("kwargs", {}).get("name", "")
+                        ))
+                    else:
+                        messages.append(BaseMessage(type=role, content=content))
                 state = {
-                    "messages": [from_json_default(msg) for msg in serializable_state["messages"]],
+                    "messages": messages,
                     "next": serializable_state["next"],
                     "error_count": serializable_state["error_count"],
                     "reasoning": serializable_state["reasoning"],
@@ -101,6 +121,7 @@ class MemoryManager:
         if os.path.exists(self.memory_path):
             with open(self.memory_path, "r", encoding="utf-8") as f:
                 self.memories = json.load(f)
+
 
 class LangGraphMemoryCheckpointer(BaseCheckpointSaver):
     def __init__(self, memory_manager: MemoryManager, max_history: int = 5):
@@ -129,6 +150,7 @@ class LangGraphMemoryCheckpointer(BaseCheckpointSaver):
             self.mm.save_memory(user_id, state["memory_triples"])
         state["memory_triples"] = self.mm.search_memories(user_id, "recent", self.max_history)
         self.mm.save_state(user_id, state)
+
 
 memory_manager = MemoryManager()
 checkpointer = LangGraphMemoryCheckpointer(memory_manager)
