@@ -5,11 +5,13 @@ Stores and retrieves conversation memories and full SupervisorState with persist
 
 import json
 import os
-from typing import List, TypedDict, Optional, Dict
+from typing import List, TypedDict, Optional, Annotated, Dict
 from datetime import datetime, timedelta
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langgraph.graph.message import add_messages
+import operator
 
 
 class MemoryTriple(TypedDict):
@@ -20,9 +22,9 @@ class MemoryTriple(TypedDict):
 
 
 class SupervisorState(TypedDict):
-    messages: List[BaseMessage]
+    messages: Annotated[List[BaseMessage], operator.add, add_messages]  # Updated to match supervisor.py
     next: str
-    error_count: int
+    error_count: int  # No reducer needed here in memory.py
     reasoning: Optional[str]
     memory_triples: List[MemoryTriple]
 
@@ -65,7 +67,6 @@ class MemoryManager:
     def save_state(self, user_id: str, state: SupervisorState) -> None:
         """Save full SupervisorState to disk."""
         state_path = os.path.join(self.state_dir, f"{user_id}.json")
-        # Serialize BaseMessage objects to dictionaries
         serializable_state = {
             "messages": [msg.to_json() for msg in state["messages"]],
             "next": state["next"],
@@ -82,7 +83,6 @@ class MemoryManager:
         if os.path.exists(state_path):
             with open(state_path, "r", encoding="utf-8") as f:
                 serializable_state = json.load(f)
-                # Deserialize messages back to BaseMessage objects
                 messages = []
                 for msg_dict in serializable_state["messages"]:
                     role = msg_dict.get("kwargs", {}).get("role") or msg_dict.get("type")
