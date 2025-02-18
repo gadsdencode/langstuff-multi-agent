@@ -7,13 +7,14 @@ import os
 import logging
 import json
 from functools import lru_cache, wraps
-from typing import Optional, Dict, Literal, Callable
+from typing import Optional, Dict, Literal, Callable, Any, TypedDict
 from pydantic import BaseModel, ValidationError
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables.config import RunnableConfig
 from langstuff_multi_agent.utils.memory import MemoryManager, LangGraphMemoryCheckpointer
+
 
 class ConfigSchema(TypedDict):
     model: Optional[str]
@@ -22,6 +23,7 @@ class ConfigSchema(TypedDict):
     top_p: Optional[float]
     max_tokens: Optional[int]
     provider: Literal["openai", "anthropic", "grok"]
+
 
 class Config:
     # API Keys
@@ -58,11 +60,13 @@ class Config:
             raise ValueError(f"{provider.upper()}_API_KEY not set")
         return key
 
+
 class ModelConfig(BaseModel):
     provider: Literal["openai", "anthropic", "grok"]
     model_name: str
     temperature: float = 0.7
     max_tokens: int = 2048
+
 
 def get_model_instance(provider: str, **kwargs) -> BaseChatModel:
     config_data = {**Config.MODEL_CONFIGS[provider], **kwargs}
@@ -74,12 +78,14 @@ def get_model_instance(provider: str, **kwargs) -> BaseChatModel:
         return ChatOpenAI(api_key=Config.get_api_key(provider), **params)
     raise ValueError(f"Unsupported provider: {provider}")
 
+
 @lru_cache(maxsize=Config.LLM_CACHE_SIZE)
 def get_llm(configurable: Dict[str, Any] = {}) -> BaseChatModel:
     provider = configurable.get("provider", Config.DEFAULT_PROVIDER)
     model_kwargs = configurable.get("model_kwargs", {})
     llm = get_model_instance(provider, **model_kwargs)
     return llm
+
 
 def create_model_config(model: Optional[str] = None, system_message: Optional[str] = None, **kwargs) -> RunnableConfig:
     validated = ConfigSchema(
@@ -91,5 +97,6 @@ def create_model_config(model: Optional[str] = None, system_message: Optional[st
         max_tokens=kwargs.get("max_tokens", 4000)
     )
     return {"configurable": validated}
+
 
 __all__ = ["Config", "get_llm", "create_model_config"]
