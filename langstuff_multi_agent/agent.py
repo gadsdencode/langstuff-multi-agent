@@ -17,8 +17,6 @@ config = Config()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize the checkpointer (sets Config.checkpointer)
-Config.init_checkpointer()
 logger.info("Initializing primary supervisor workflow...")
 
 
