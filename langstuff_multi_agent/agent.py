@@ -3,7 +3,7 @@ Entry point for the LangGraph multi-agent system.
 """
 
 import logging
-from langstuff_multi_agent.agents.supervisor import create_supervisor
+from langstuff_multi_agent.agents.supervisor import create_supervisor, member_graphs
 from langstuff_multi_agent.config import get_llm
 from langstuff_multi_agent.utils.memory import SupervisorState
 from langgraph.checkpoint.memory import MemorySaver
@@ -12,9 +12,9 @@ from langgraph.checkpoint.memory import MemorySaver
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-logger.info("Initializing minimal supervisor workflow...")
+logger.info("Initializing supervisor workflow with preprocessing...")
 
-# Create and compile aminimal supervisor graph
+# Create and compile the supervisor graph
 try:
     supervisor_graph = create_supervisor(llm=get_llm()).compile(checkpointer=MemorySaver())
     logger.info("Graph compiled successfully")
@@ -27,7 +27,7 @@ graph = supervisor_graph
 
 __all__ = ["graph", "supervisor_graph"]
 
-logger.info("Minimal supervisor workflow initialized.")
+logger.info("Supervisor workflow initialized.")
 
 if __name__ == "__main__":
     from langchain_core.messages import HumanMessage
