@@ -1,126 +1,90 @@
-# langstuff_multi_agent/agents/analyst.py
 """
 Analyst Agent module for data analysis and interpretation.
 
-This module provides a workflow for analyzing data and performing
-calculations using various tools.
+This module provides a workflow for analyzing data and performing calculations using various tools.
 """
 
-from langgraph.graph import StateGraph, MessagesState, START, END
-from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import (
-    search_web,
-    python_repl,
-    calc_tool,
-    has_tool_calls,
-    news_tool
-)
-from langstuff_multi_agent.config import get_llm
-from langchain_core.messages import ToolMessage
-import json
-from langchain.schema import SystemMessage, HumanMessage, AIMessage
 import logging
-
-analyst_graph = StateGraph(MessagesState)
-
-# Define tools for analysis tasks
-tools = [search_web, python_repl, calc_tool, news_tool]
-tool_node = ToolNode(tools)
+from langgraph.graph import StateGraph, MessagesState, START, END
+from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, python_repl, calc_tool, news_tool
+from langstuff_multi_agent.config import ConfigSchema, get_llm
+from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 
 logger = logging.getLogger(__name__)
 
+analyst_graph = StateGraph(MessagesState, ConfigSchema)
 
-def analyze_data(state):
+
+def analyze_data(state, config):
     """Analyze data and perform calculations."""
-    messages = state.get("messages", [])
-    config = state.get("config", {})
-
     llm = get_llm(config.get("configurable", {}))
-    response = llm.invoke(messages)
-
-    return {"messages": messages + [response]}
+    tools = [search_web, python_repl, calc_tool, news_tool]
+    llm = llm.bind_tools(tools)
+    response = llm.invoke(state["messages"] + [
+        {
+            "role": "system",
+            "content": (
+                "You are an Analyst Agent. Your task is to analyze data and perform calculations.\n\n"
+                "You have access to the following tools:\n"
+                "- search_web: Gather data from the web.\n"
+                "- python_repl: Execute Python code for analysis.\n"
+                "- calc_tool: Perform mathematical calculations.\n"
+                "- news_tool: Retrieve relevant news data.\n\n"
+                "Instructions:\n"
+                "1. Analyze the user's data request.\n"
+                "2. Use tools to gather or compute data.\n"
+                "3. Provide a clear, concise analysis."
+            )
+        }
+    ])
+    if not response.tool_calls:
+        response.additional_kwargs["final_answer"] = True
+    return {"messages": [response]}
 
 
 def process_tool_results(state, config):
-    """Processes tool outputs with robust data validation"""
-    # Clean previous error messages
-    state["messages"] = [msg for msg in state["messages"]
-                        if not (isinstance(msg, ToolMessage) and "⚠️" in msg.content)]
+    """Processes tool outputs and formats final analysis."""
+    last_message = state["messages"][-1]
+    if not last_message.tool_calls:
+        return state
 
-    try:
-        # Get last tool message with content validation
-        last_tool_msg = next(msg for msg in reversed(state["messages"])
-                            if isinstance(msg, ToolMessage))
+    tool_messages = []
+    for tc in last_message.tool_calls:
+        tool = next(t for t in [search_web, python_repl, calc_tool, news_tool] if t.name == tc["name"])
+        try:
+            output = tool.invoke(tc["args"])
+            tool_messages.append({
+                "role": "tool",
+                "content": output,
+                "tool_call_id": tc["id"]
+            })
+        except Exception as e:
+            logger.error(f"Tool execution failed: {str(e)}")
+            tool_messages.append({
+                "role": "tool",
+                "content": f"Error: {str(e)}",
+                "tool_call_id": tc["id"]
+            })
 
-        # Clean and validate raw content
-        raw_content = last_tool_msg.content
-        clean_content = raw_content.replace('\0', '').replace('\ufeff', '').strip()
-        if not clean_content:
-            raise ValueError("Empty tool response after cleaning")
-
-        # Hybrid data parsing
-        if clean_content[0] in ('{', '['):
-            results = json.loads(clean_content, strict=False)
-        else:
-            results = [{"content": line} for line in clean_content.split("\n") if line.strip()]
-
-        # Validate and process results
-        if not isinstance(results, list):
-            results = [results]
-
-        valid_results = [
-            res for res in results[:5]
-            if validate_analysis_result(res)
-        ]
-
-        if not valid_results:
-            raise ValueError("No valid analysis results")
-
-        # Generate analytical summary
-        tool_outputs = []
-        for res in valid_results:
-            output = f"{res.get('metric', 'Result')}: {res['value']}" if 'value' in res else res['content']
-            tool_outputs.append(output[:200])
-
-        llm = get_llm(config.get("configurable", {}))
-        summary = llm.invoke([
-            SystemMessage(content="Analyze and interpret these results:"),
-            HumanMessage(content="\n".join(tool_outputs))
-        ])
-
-        return {"messages": [summary]}
-
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.error(f"Analysis Error: {str(e)}")
-        return {"messages": [AIMessage(
-            content=f"Analysis summary:\n{clean_content[:500]}",
-            additional_kwargs={"raw_data": True}
-        )]}
+    llm = get_llm(config.get("configurable", {}))
+    final_response = llm.invoke(state["messages"] + tool_messages + [
+        SystemMessage(content="Analyze and interpret these results:")
+    ])
+    final_response.additional_kwargs["final_answer"] = True
+    return {"messages": state["messages"] + tool_messages + [final_response]}
 
 
-def validate_analysis_result(result: dict) -> bool:
-    """Validate analysis result structure"""
-    return isinstance(result, dict) and any(key in result for key in ['content', 'value'])
-
-
-# Initialize and configure the analyst graph
 analyst_graph.add_node("analyze_data", analyze_data)
 analyst_graph.add_node("tools", tool_node)
 analyst_graph.add_node("process_results", process_tool_results)
 analyst_graph.set_entry_point("analyze_data")
-analyst_graph.add_edge(START, "analyze_data")
-
 analyst_graph.add_conditional_edges(
     "analyze_data",
-    lambda state: (
-        "tools" if has_tool_calls(state.get("messages", [])) else "END"
-    ),
+    lambda state: "tools" if has_tool_calls(state["messages"]) else "END",
     {"tools": "tools", "END": END}
 )
-
 analyst_graph.add_edge("tools", "process_results")
 analyst_graph.add_edge("process_results", "analyze_data")
-
 analyst_graph = analyst_graph.compile()
 
 __all__ = ["analyst_graph"]

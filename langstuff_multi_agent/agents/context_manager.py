@@ -1,135 +1,77 @@
-# langstuff_multi_agent/agents/context_manager.py
 """
 Context Manager Agent module for tracking conversation context.
 
-This module provides a workflow for managing conversation history
-and maintaining context across interactions.
+This module provides a workflow for managing conversation history and maintaining context across interactions.
 """
-import json
+
 from langgraph.graph import StateGraph, MessagesState, START, END
-from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import (
-    search_web,
-    read_file,
-    write_file,
-    has_tool_calls,
-    save_memory,
-    search_memories
-)
+from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, read_file, write_file, save_memory, search_memories
 from langstuff_multi_agent.config import ConfigSchema, get_llm
-from langchain_core.messages import ToolMessage, AIMessage
 
-# 1. Initialize workflow FIRST
-context_manager_workflow = StateGraph(MessagesState, ConfigSchema)
-
-# Define tools for context management
-tools = [search_web, read_file, write_file]
-tool_node = ToolNode(tools)
-
-
-def save_context(state):
-    """Saves conversation history to a file"""
-    with open("context.json", "w") as f:
-        json.dump(state["messages"], f)
-
-
-def load_context():
-    """Loads previous conversation history"""
-    try:
-        with open("context.json", "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return []
+context_manager_graph = StateGraph(MessagesState, ConfigSchema)
 
 
 def manage_context(state, config):
-    """Manage context using memory system"""
-    user_id = config.get("configurable", {}).get("user_id", "global")
-    
-    # Save conversation history to memory
-    save_memory.invoke([{
-        "subject": "conversation",
-        "predicate": "history",
-        "object_": msg.content
-    } for msg in state["messages"]], {"configurable": config.get("configurable", {})})
-    
-    # Retrieve relevant memories
-    memories = search_memories.invoke(
-        state["messages"][-1].content,
-        {"configurable": config.get("configurable", {})}
-    )
-    
-    return {
-        "messages": state["messages"] + [AIMessage(
-            content=f"Contextual memories: {memories}"
-        )]
-    }
+    """Manage conversation context using memory tools."""
+    llm = get_llm(config.get("configurable", {}))
+    tools = [search_web, read_file, write_file, save_memory, search_memories]
+    llm = llm.bind_tools(tools)
+    response = llm.invoke(state["messages"] + [
+        {
+            "role": "system",
+            "content": (
+                "You are a Context Manager Agent. Your task is to track and maintain conversation context.\n"
+                "You have access to the following tools:\n"
+                "- search_web: Look up additional context.\n"
+                "- read_file: Retrieve stored context from files.\n"
+                "- write_file: Save context to files.\n"
+                "- save_memory: Save conversation history to memory.\n"
+                "- search_memories: Retrieve relevant past context.\n\n"
+                "Instructions:\n"
+                "1. Analyze the current conversation.\n"
+                "2. Use tools to save or retrieve context as needed.\n"
+                "3. Provide a response that reflects the full context."
+            )
+        }
+    ])
+    if not response.tool_calls:
+        response.additional_kwargs["final_answer"] = True
+    return {"messages": [response]}
 
 
 def process_tool_results(state, config):
-    """Process tool outputs and generate final response."""
-    # Add handoff command detection
-    for msg in state["messages"]:
-        if tool_calls := getattr(msg, 'tool_calls', None):
-            for tc in tool_calls:
-                if tc['name'].startswith('transfer_to_'):
-                    return {
-                        "messages": [ToolMessage(
-                            goto=tc['name'].replace('transfer_to_', ''),
-                            graph=ToolMessage.PARENT
-                        )]
-                    }
+    """Process tool outputs and format final response."""
+    last_message = state["messages"][-1]
+    if not last_message.tool_calls:
+        return state
 
-    tool_outputs = []
+    tool_messages = []
+    for tc in last_message.tool_calls:
+        tool = next(t for t in [search_web, read_file, write_file, save_memory, search_memories] if t.name == tc["name"])
+        output = tool.invoke(tc["args"], config=config if tc["name"] in ["save_memory", "search_memories"] else None)
+        tool_messages.append({
+            "role": "tool",
+            "content": output,
+            "tool_call_id": tc["id"]
+        })
 
-    for msg in state["messages"]:
-        if tool_calls := getattr(msg, "tool_calls", None):
-            for tc in tool_calls:
-                try:
-                    output = f"Tool {tc['name']} result: {tc['output']}"
-                    tool_outputs.append({
-                        "tool_call_id": tc["id"],
-                        "output": output
-                    })
-                except Exception as e:
-                    tool_outputs.append({
-                        "tool_call_id": tc["id"],
-                        "error": f"Tool execution failed: {str(e)}"
-                    })
-
-    return {
-        "messages": state["messages"] + [
-            {
-                "role": "tool",
-                "content": to["output"],
-                "tool_call_id": to["tool_call_id"]
-            } 
-            for to in tool_outputs
-        ]
-    }
+    llm = get_llm(config.get("configurable", {}))
+    final_response = llm.invoke(state["messages"] + tool_messages)
+    final_response.additional_kwargs["final_answer"] = True
+    return {"messages": state["messages"] + tool_messages + [final_response]}
 
 
-# 2. Add nodes BEFORE compiling
-context_manager_workflow.add_node("manage_context", manage_context)
-context_manager_workflow.add_node("tools", tool_node)
-context_manager_workflow.add_node("process_results", process_tool_results)
-
-# 3. Set entry point explicitly
-context_manager_workflow.set_entry_point("manage_context")
-
-# 4. Add edges in sequence
-context_manager_workflow.add_edge(START, "manage_context")
-context_manager_workflow.add_conditional_edges(
+context_manager_graph.add_node("manage_context", manage_context)
+context_manager_graph.add_node("tools", tool_node)
+context_manager_graph.add_node("process_results", process_tool_results)
+context_manager_graph.set_entry_point("manage_context")
+context_manager_graph.add_conditional_edges(
     "manage_context",
-    lambda state: (
-        "tools" if has_tool_calls(state.get("messages", [])) else END
-    ),
-    {"tools": "tools", END: END}
+    lambda state: "tools" if has_tool_calls(state["messages"]) else "END",
+    {"tools": "tools", "END": END}
 )
-context_manager_workflow.add_edge("tools", "process_results")
-context_manager_workflow.add_edge("process_results", "manage_context")
-
-# 5. Compile ONCE at the end
-context_manager_graph = context_manager_workflow.compile()
+context_manager_graph.add_edge("tools", "process_results")
+context_manager_graph.add_edge("process_results", "manage_context")
+context_manager_graph = context_manager_graph.compile()
 
 __all__ = ["context_manager_graph"]

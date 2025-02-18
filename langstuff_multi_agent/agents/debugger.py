@@ -1,101 +1,77 @@
-# langstuff_multi_agent/agents/debugger.py
 """
 Debugger Agent module for analyzing code and identifying errors.
 
-This module provides a workflow for debugging code using various tools
-and LLM-based analysis.
+This module provides a workflow for debugging code using various tools and LLM-based analysis.
 """
 
 from langgraph.graph import StateGraph, MessagesState, START, END
-from langgraph.prebuilt import ToolNode
-from langstuff_multi_agent.utils.tools import (
-    search_web,
-    python_repl,
-    read_file,
-    write_file,
-    has_tool_calls,
-    calc_tool
-)
-from langstuff_multi_agent.config import get_llm
-from langchain_core.messages import ToolMessage
+from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, python_repl, read_file, write_file, calc_tool
+from langstuff_multi_agent.config import ConfigSchema, get_llm
 
-debugger_workflow = StateGraph(MessagesState)
-
-# Define the tools available to the Debugger Agent
-tools = [search_web, python_repl, read_file, write_file, calc_tool]
-tool_node = ToolNode(tools)
+debugger_graph = StateGraph(MessagesState, ConfigSchema)
 
 
-def analyze_code(state):
+def analyze_code(state, config):
     """Analyze code and identify errors."""
-    messages = state.get("messages", [])
-    config = state.get("config", {})
-
     llm = get_llm(config.get("configurable", {}))
-    response = llm.invoke(messages)
-
-    return {"messages": messages + [response]}
+    tools = [search_web, python_repl, read_file, write_file, calc_tool]
+    llm = llm.bind_tools(tools)
+    response = llm.invoke(state["messages"] + [
+        {
+            "role": "system",
+            "content": (
+                "You are a Debugger Agent. Your task is to analyze code and identify errors.\n"
+                "You have access to the following tools:\n"
+                "- search_web: Look up debugging resources.\n"
+                "- python_repl: Test code snippets.\n"
+                "- read_file: Retrieve code from files.\n"
+                "- write_file: Save corrected code.\n"
+                "- calc_tool: Perform calculations if needed.\n\n"
+                "Instructions:\n"
+                "1. Analyze the user's code or error description.\n"
+                "2. Use tools to test or research solutions.\n"
+                "3. Provide a clear explanation and fix."
+            )
+        }
+    ])
+    if not response.tool_calls:
+        response.additional_kwargs["final_answer"] = True
+    return {"messages": [response]}
 
 
 def process_tool_results(state, config):
-    """Processes tool outputs and formats FINAL user response"""
-    # Add handoff command detection
-    for msg in state["messages"]:
-        if tool_calls := getattr(msg, 'tool_calls', None):
-            for tc in tool_calls:
-                if tc['name'].startswith('transfer_to_'):
-                    return {
-                        "messages": [ToolMessage(
-                            goto=tc['name'].replace('transfer_to_', ''),
-                            graph=ToolMessage.PARENT
-                        )]
-                    }
-
+    """Processes tool outputs and formats final response."""
     last_message = state["messages"][-1]
-    tool_outputs = []
+    if not last_message.tool_calls:
+        return state
 
-    if tool_calls := getattr(last_message, 'tool_calls', None):
-        for tc in tool_calls:
-            try:
-                output = f"Tool {tc['name']} result: {tc['output']}"
-                tool_outputs.append({
-                    "tool_call_id": tc["id"],
-                    "output": output
-                })
-            except Exception as e:
-                tool_outputs.append({
-                    "tool_call_id": tc["id"],
-                    "error": f"Tool execution failed: {str(e)}"
-                })
+    tool_messages = []
+    for tc in last_message.tool_calls:
+        tool = next(t for t in [search_web, python_repl, read_file, write_file, calc_tool] if t.name == tc["name"])
+        output = tool.invoke(tc["args"])
+        tool_messages.append({
+            "role": "tool",
+            "content": output,
+            "tool_call_id": tc["id"]
+        })
 
-        return {
-            "messages": state["messages"] + [
-                {
-                    "role": "tool",
-                    "content": to["output"],
-                    "tool_call_id": to["tool_call_id"]
-                } for to in tool_outputs
-            ]
-        }
-    return state
+    llm = get_llm(config.get("configurable", {}))
+    final_response = llm.invoke(state["messages"] + tool_messages)
+    final_response.additional_kwargs["final_answer"] = True
+    return {"messages": state["messages"] + tool_messages + [final_response]}
 
 
-# Initialize and configure the debugger workflow
-debugger_workflow.add_node("analyze_code", analyze_code)
-debugger_workflow.add_node("tools", tool_node)
-debugger_workflow.add_node("process_results", process_tool_results)
-debugger_workflow.set_entry_point("analyze_code")
-debugger_workflow.add_edge(START, "analyze_code")
-
-debugger_workflow.add_conditional_edges(
+debugger_graph.add_node("analyze_code", analyze_code)
+debugger_graph.add_node("tools", tool_node)
+debugger_graph.add_node("process_results", process_tool_results)
+debugger_graph.set_entry_point("analyze_code")
+debugger_graph.add_conditional_edges(
     "analyze_code",
-    lambda state: "tools" if has_tool_calls(state.get("messages", [])) else "END",
+    lambda state: "tools" if has_tool_calls(state["messages"]) else "END",
     {"tools": "tools", "END": END}
 )
-
-debugger_workflow.add_edge("tools", "process_results")
-debugger_workflow.add_edge("process_results", "analyze_code")
-
-debugger_graph = debugger_workflow.compile()
+debugger_graph.add_edge("tools", "process_results")
+debugger_graph.add_edge("process_results", "analyze_code")
+debugger_graph = debugger_graph.compile()
 
 __all__ = ["debugger_graph"]

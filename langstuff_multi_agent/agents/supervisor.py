@@ -1,21 +1,14 @@
 """
 Supervisor module for managing a hierarchical multi-agent system.
 
-This module defines the supervisor workflow that routes user queries to specialized agents
-and coordinates their execution until the task is complete.
+This module defines the supervisor workflow that routes user queries to specialized agents and coordinates their execution until the task is complete.
 """
 
 import logging
 from typing import List, Literal, Optional, Dict, Any, TypedDict, Annotated
 from pydantic.v1 import BaseModel, Field
 from langgraph.graph import StateGraph, END
-from langchain_core.messages import (
-    HumanMessage,
-    AIMessage,
-    ToolMessage,
-    SystemMessage,
-    BaseMessage
-)
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage, BaseMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.message import add_messages
@@ -38,11 +31,9 @@ from langstuff_multi_agent.agents.marketing_strategist import marketing_strategi
 from langstuff_multi_agent.agents.creative_content import creative_content_graph
 from langstuff_multi_agent.agents.financial_analyst import financial_analyst_graph
 
-# Set up logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Define available agents
 AVAILABLE_AGENTS = [
     'debugger', 'context_manager', 'project_manager', 'professional_coach',
     'life_coach', 'coder', 'analyst', 'researcher', 'general_assistant',
@@ -50,7 +41,6 @@ AVAILABLE_AGENTS = [
     'creative_content', 'financial_analyst'
 ]
 
-# Define member graphs dictionary
 member_graphs = {
     "debugger": debugger_graph,
     "context_manager": context_manager_graph,
@@ -68,14 +58,14 @@ member_graphs = {
     "financial_analyst": financial_analyst_graph
 }
 
-# Supervisor State Definition
+
 class SupervisorState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add, add_messages]
     next: str
     error_count: Annotated[int, operator.add]
     reasoning: Optional[str]
 
-# Route Decision Schema
+
 class RouteDecision(BaseModel):
     """Routing decision with chain-of-thought reasoning"""
     reasoning: str = Field(..., description="Step-by-step routing logic")
@@ -86,19 +76,18 @@ class RouteDecision(BaseModel):
         'creative_content', 'financial_analyst', 'FINISH'
     ] = Field(..., description="Target agent or FINISH")
 
+
 def process_tool_results(state: SupervisorState, config: RunnableConfig) -> Dict[str, Any]:
     """Process any pending tool calls in the message chain."""
     messages = state["messages"]
     if not messages:
         return {"messages": messages, "next": "general_assistant", "error_count": 0}
-
     last_message = messages[-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
-        return {"messages": messages}  # No tool calls to process
+        return {"messages": messages}
 
     tool_messages = []
-    next_destination = state.get("next", "supervisor")  # Default back to supervisor unless overridden
-
+    next_destination = state.get("next", "supervisor")
     for tc in last_message.tool_calls:
         if tc["name"].startswith("transfer_to_"):
             agent_name = tc["name"].replace("transfer_to_", "")
@@ -109,20 +98,19 @@ def process_tool_results(state: SupervisorState, config: RunnableConfig) -> Dict
                 name=tc["name"]
             ))
         else:
-            # Mock tool execution (replace with actual tool calls if available)
             output = f"Tool {tc['name']} result: (Mocked output)"
             tool_messages.append(ToolMessage(
                 content=output,
                 tool_call_id=tc["id"],
                 name=tc["name"]
             ))
-
     return {
         "messages": messages + tool_messages,
         "next": next_destination,
         "error_count": state.get("error_count", 0),
         "reasoning": state.get("reasoning", None)
     }
+
 
 def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str, Any]:
     """Core supervisor logic to route queries or finalize the task."""
@@ -134,13 +122,9 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
             "messages": messages,
             "reasoning": "No messages provided, defaulting to general_assistant"
         }
-
     last_message = messages[-1]
-    # Check for tool calls (e.g., explicit transfers)
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
         return process_tool_results(state, config)
-
-    # Check for final answer from an agent
     if isinstance(last_message, AIMessage) and last_message.additional_kwargs.get("final_answer", False):
         return {
             "next": "FINISH",
@@ -149,7 +133,6 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
             "reasoning": "Agent marked response as final"
         }
 
-    # Route to an agent
     options = AVAILABLE_AGENTS + ["FINISH"]
     system_prompt = (
         f"You manage these workers: {', '.join(AVAILABLE_AGENTS)}. "
@@ -162,10 +145,7 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
     )
     structured_llm = get_llm().with_structured_output(RouteDecision)
     try:
-        decision = structured_llm.invoke([
-            SystemMessage(content=system_prompt),
-            *messages
-        ])
+        decision = structured_llm.invoke([SystemMessage(content=system_prompt), *messages])
         next_destination = decision.destination if decision.destination in options else "general_assistant"
         error_increment = 1 if decision.destination not in options else 0
         return {
@@ -183,6 +163,7 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
             "reasoning": "Fallback to general_assistant due to routing failure"
         }
 
+
 def create_supervisor(
     llm: BaseChatModel,
     members: List[str],
@@ -192,41 +173,25 @@ def create_supervisor(
 ) -> StateGraph:
     """Create and configure the supervisor workflow."""
     workflow = StateGraph(state_type or SupervisorState)
-
-    # Add supervisor node
     workflow.add_node("supervisor", supervisor_logic)
-
-    # Add member nodes with retry logic
     for name in members:
         if name not in member_graphs:
             logger.error(f"Member {name} not found in member_graphs")
             continue
-        workflow.add_node(
-            name,
-            member_graphs[name].with_retry(stop_after_attempt=2, wait_exponential_jitter=True)
-        )
-
-    # Define routing from supervisor
+        workflow.add_node(name, member_graphs[name].with_retry(stop_after_attempt=2, wait_exponential_jitter=True))
     workflow.add_conditional_edges(
         "supervisor",
         lambda state: state["next"],
         {name: name for name in members} | {"FINISH": END}
     )
-
-    # Route back to supervisor from each member
     for member in members:
         workflow.add_edge(member, "supervisor")
-
-    # Set entry point
     workflow.set_entry_point("supervisor")
-
-    # Set input type if provided
     if input_type is not None:
         workflow.input_type = input_type
-
     return workflow
 
-# Initialize supervisor workflow
+
 supervisor_workflow = create_supervisor(
     llm=get_llm(),
     members=list(member_graphs.keys()),
