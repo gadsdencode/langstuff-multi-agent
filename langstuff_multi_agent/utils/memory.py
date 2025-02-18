@@ -5,11 +5,12 @@ Stores and retrieves conversation memories and full SupervisorState with persist
 
 import json
 import os
-from typing import List, TypedDict, Dict, Optional
+from typing import List, TypedDict, Optional
 from datetime import datetime, timedelta
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint
-
+from langchain_core.messages import BaseMessage, to_json_default, from_json_default
+from langgraph.graph.message import add_messages
 
 class MemoryTriple(TypedDict):
     subject: str
@@ -17,14 +18,12 @@ class MemoryTriple(TypedDict):
     object_: str
     timestamp: str
 
-
 class SupervisorState(TypedDict):
-    messages: List[dict]
+    messages: List[BaseMessage]  # Changed to match MessagesState
     next: str
     error_count: int
     reasoning: Optional[str]
-    memory_triples: List[MemoryTriple]  # Embedded for simplicity
-
+    memory_triples: List[MemoryTriple]
 
 class MemoryManager:
     def __init__(self, memory_path: str = "memory_store.json", state_dir: str = "state_store"):
@@ -64,17 +63,31 @@ class MemoryManager:
     def save_state(self, user_id: str, state: SupervisorState) -> None:
         """Save full SupervisorState to disk."""
         state_path = os.path.join(self.state_dir, f"{user_id}.json")
+        # Convert BaseMessage to JSON-serializable dicts
+        serializable_state = {
+            "messages": [msg.to_json() for msg in state["messages"]],
+            "next": state["next"],
+            "error_count": state["error_count"],
+            "reasoning": state["reasoning"],
+            "memory_triples": state["memory_triples"]
+        }
         with open(state_path, "w", encoding="utf-8") as f:
-            json.dump(state, f)
+            json.dump(serializable_state, f, default=to_json_default)
 
     def load_state(self, user_id: str) -> Optional[SupervisorState]:
         """Load full SupervisorState from disk."""
         state_path = os.path.join(self.state_dir, f"{user_id}.json")
         if os.path.exists(state_path):
             with open(state_path, "r", encoding="utf-8") as f:
-                state = json.load(f)
-                # Ensure memory_triples is present
-                state["memory_triples"] = self.memories.get(user_id, [])
+                serializable_state = json.load(f)
+                # Convert dicts back to BaseMessage
+                state = {
+                    "messages": [from_json_default(msg) for msg in serializable_state["messages"]],
+                    "next": serializable_state["next"],
+                    "error_count": serializable_state["error_count"],
+                    "reasoning": serializable_state["reasoning"],
+                    "memory_triples": serializable_state["memory_triples"]
+                }
                 return state
         return None
 
@@ -89,7 +102,6 @@ class MemoryManager:
             with open(self.memory_path, "r", encoding="utf-8") as f:
                 self.memories = json.load(f)
 
-
 class LangGraphMemoryCheckpointer(BaseCheckpointSaver):
     def __init__(self, memory_manager: MemoryManager, max_history: int = 5):
         self.mm = memory_manager
@@ -100,7 +112,6 @@ class LangGraphMemoryCheckpointer(BaseCheckpointSaver):
         user_id = config["configurable"].get("user_id", "global")
         state = self.mm.load_state(user_id)
         if state is None:
-            # Default state if none exists
             state = {
                 "messages": [],
                 "next": "supervisor",
@@ -114,13 +125,10 @@ class LangGraphMemoryCheckpointer(BaseCheckpointSaver):
         """Store checkpoint with full SupervisorState."""
         user_id = config["configurable"].get("user_id", "global")
         state = checkpoint["v"]
-        # Update memory_triples separately if present
         if "memory_triples" in state:
             self.mm.save_memory(user_id, state["memory_triples"])
-        # Ensure memory_triples reflects current state
         state["memory_triples"] = self.mm.search_memories(user_id, "recent", self.max_history)
         self.mm.save_state(user_id, state)
-
 
 memory_manager = MemoryManager()
 checkpointer = LangGraphMemoryCheckpointer(memory_manager)
