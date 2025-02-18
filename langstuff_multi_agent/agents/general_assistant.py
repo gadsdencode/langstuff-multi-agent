@@ -6,8 +6,8 @@ This module provides a workflow for addressing general user requests using a var
 
 from langgraph.graph import StateGraph, MessagesState, END
 from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, get_current_weather, news_tool
-from langstuff_multi_agent.config import ConfigSchema, get_llm
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langstuff_multi_agent.config import get_llm
+from langchain_core.messages import AIMessage, SystemMessage, BaseMessage, ToolMessage
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,9 +17,11 @@ def assist(state: MessagesState, config: dict) -> dict:
     """Provide general assistance with configuration support."""
     llm = get_llm(config.get("configurable", {}))
     tools = [search_web, get_current_weather, news_tool]
-    llm = llm.bind_tools(tools)
+    llm_with_tools = llm.bind_tools(tools)
     
-    # Trust preprocess to deliver BaseMessage objects
+    # Log incoming state
+    logger.info(f"Assist input state: {state}")
+    
     messages = state["messages"]
     system_prompt = SystemMessage(content=(
         "You are a General Assistant Agent. Your task is to assist with a variety of general queries and tasks.\n\n"
@@ -33,10 +35,10 @@ def assist(state: MessagesState, config: dict) -> dict:
         "3. Provide clear, concise, and helpful responses to assist the user."
     ))
     
-    response = llm.invoke(messages + [system_prompt])
-    logger.info(f"LLM response type: {type(response)}, content: {response}")
+    # Invoke LLM and ensure response is an AIMessage
+    response = llm_with_tools.invoke(messages + [system_prompt])
+    logger.info(f"LLM response: {type(response)} - {response}")
     
-    # Ensure response is an AIMessage
     if not isinstance(response, AIMessage):
         if isinstance(response, dict):
             content = response.get("content", "I’m your General Assistant—how can I help?")
@@ -44,16 +46,20 @@ def assist(state: MessagesState, config: dict) -> dict:
         else:
             response = AIMessage(content=str(response))
     
-    if not response.tool_calls:
+    # Set final_answer if no tool calls
+    if not hasattr(response, "tool_calls") or not response.tool_calls:
         response.additional_kwargs["final_answer"] = True
+    
+    logger.info(f"Returning response: {response}")
     return {"messages": [response]}
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
     """Processes tool outputs and formats final response."""
     last_message = state["messages"][-1]
-    if not last_message.tool_calls:
+    if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
         return state
     
+    logger.info(f"Processing tool calls: {last_message.tool_calls}")
     tool_messages = []
     for tc in last_message.tool_calls:
         tool = next(t for t in [search_web, get_current_weather, news_tool] if t.name == tc["name"])
@@ -66,7 +72,7 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
-    logger.info(f"Final response type: {type(final_response)}, content: {final_response}")
+    logger.info(f"Final response: {type(final_response)} - {final_response}")
     
     if not isinstance(final_response, AIMessage):
         if isinstance(final_response, dict):
@@ -74,6 +80,7 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
         else:
             final_response = AIMessage(content=str(final_response))
     final_response.additional_kwargs["final_answer"] = True
+    
     return {"messages": state["messages"] + tool_messages + [final_response]}
 
 # Define and compile the graph
