@@ -144,11 +144,13 @@ def create_supervisor(llm) -> StateGraph:
                     state["messages"] = convert_messages(state["messages"])
                     subgraph_state = {"messages": state["messages"]}
                     try:
-                        # Handle both Pydantic models and raw dicts
+                        # Handle both compiled graphs and raw StateGraph objects
                         config_dict = config.dict() if hasattr(config, 'dict') else config
-                        result = subgraph(subgraph_state, config_dict)
-                    except (TypeError, AttributeError):
-                        result = subgraph(subgraph_state)
+                        result = subgraph.invoke(subgraph_state, config_dict)
+                    except Exception as e:
+                        logger.error(f"Subgraph execution failed: {str(e)}")
+                        state["messages"].append(SystemMessage(content=f"Agent error: {str(e)}"))
+                        return state
                     state["messages"] = convert_messages(result["messages"])
                     return state
                 return subgraph_node
