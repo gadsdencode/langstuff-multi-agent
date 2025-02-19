@@ -163,13 +163,8 @@ def create_supervisor(llm) -> StateGraph:
     for name in AVAILABLE_AGENTS:
         try:
             subgraph = member_graphs[name]
-            workflow.add_node(
-                name,
-                subgraph,
-                input=lambda state: {"messages": state["messages"]},
-                output=lambda subgraph_state: {"messages": subgraph_state["messages"]}
-            )
-            workflow.add_edge(name, "supervisor")
+            workflow.add_node(name, subgraph)  # Add subgraph without 'input' or 'output'
+            workflow.add_edge(name, "supervisor")  # Return to supervisor after subgraph execution
             added_agents.append(name)
             logger.info(f"Successfully added node: {name}")
         except Exception as e:
