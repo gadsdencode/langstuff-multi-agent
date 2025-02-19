@@ -1,13 +1,7 @@
-"""
-General Assistant Agent module for handling diverse queries.
-
-This module provides a workflow for addressing general user requests using a variety of tools.
-"""
-
 from langgraph.graph import StateGraph, MessagesState, END
 from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, get_current_weather, news_tool
 from langstuff_multi_agent.config import get_llm
-from langchain_core.messages import AIMessage, SystemMessage, BaseMessage, ToolMessage, HumanMessage
+from langchain_core.messages import AIMessage, SystemMessage, BaseMessage, ToolMessage, HumanMessage, ToolCall
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,7 +9,6 @@ logger.setLevel(logging.INFO)
 
 # Helper function to convert dictionary messages to BaseMessage objects
 def convert_message(msg):
-    """Convert a single message to a BaseMessage object if it’s a dictionary."""
     if isinstance(msg, dict):
         msg_type = msg.get("type")
         if msg_type == "human":
@@ -32,17 +25,15 @@ def convert_message(msg):
             )
         else:
             raise ValueError(f"Unknown message type: {msg_type}")
-    return msg  # Return unchanged if already a BaseMessage
+    return msg
 
 def convert_messages(messages):
-    """Convert a list of messages to BaseMessage objects."""
     return [convert_message(msg) for msg in messages]
 
 def assist(state: MessagesState, config: dict) -> dict:
-    """Handle general assistance queries with tool support."""
-    # Convert messages to BaseMessage objects at the start
+    """Provide general assistance with configuration support."""
     state["messages"] = convert_messages(state["messages"])
-    logger.info(f"Assist input messages: {[type(m) for m in state['messages']]}")
+    logger.info(f"Assist input state: {state}")
     
     llm = get_llm(config.get("configurable", {}))
     tools = [search_web, get_current_weather, news_tool]
@@ -61,39 +52,35 @@ def assist(state: MessagesState, config: dict) -> dict:
         "3. Provide clear, concise, and helpful responses to assist the user."
     ))
     
-    # Invoke LLM and convert response to AIMessage
     response = llm_with_tools.invoke([system_prompt] + messages)
     if isinstance(response, dict):
         content = response.get("content", "")
-        tool_calls = response.get("tool_calls", [])  # Keep as list of dictionaries
+        raw_tool_calls = response.get("tool_calls", [])  # List of dicts
+        tool_calls = [ToolCall(**tc) for tc in raw_tool_calls]
         response = AIMessage(content=content, tool_calls=tool_calls)
     elif not isinstance(response, AIMessage):
         response = AIMessage(content=str(response))
     
-    # Mark as final if no tool calls
     if not response.tool_calls:
         response.additional_kwargs["final_answer"] = True
-    
-    logger.info(f"Assist returning: type={type(response)}, tool_calls={response.tool_calls}")
+
+    logger.info(f"Returning response: {response}")
     return {"messages": [response]}
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
-    """Process tool outputs and generate a final response."""
-    # Convert messages to BaseMessage objects
+    """Processes tool outputs and formats final response."""
     state["messages"] = convert_messages(state["messages"])
-    logger.info(f"Process tool results input messages: {[type(m) for m in state['messages']]}")
     last_message = state["messages"][-1]
     
-    # Extract tool calls (list of dicts) from the last message
     tool_calls = last_message.tool_calls if isinstance(last_message, AIMessage) else []
     if not tool_calls:
         return state
     
     tool_messages = []
     for tc in tool_calls:
-        tool_name = tc["name"]
-        tool_args = tc["args"]
-        tool_id = tc["id"]
+        tool_name = tc.name
+        tool_args = tc.args
+        tool_id = tc.id
         tool = next(t for t in [search_web, get_current_weather, news_tool] if t.name == tool_name)
         output = tool.invoke(tool_args)
         tool_messages.append(ToolMessage(
@@ -101,27 +88,26 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
             tool_call_id=tool_id,
             name=tool_name
         ))
-    
+
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
+    
     if isinstance(final_response, dict):
         content = final_response.get("content", "Task completed")
-        tool_calls = final_response.get("tool_calls", [])  # Keep as list of dicts
+        raw_tool_calls = final_response.get("tool_calls", [])  # List of dicts
+        tool_calls = [ToolCall(**tc) for tc in raw_tool_calls]
         final_response = AIMessage(content=content, tool_calls=tool_calls)
     elif not isinstance(final_response, AIMessage):
         final_response = AIMessage(content=str(final_response))
-    
+
     final_response.additional_kwargs["final_answer"] = True
-    logger.info(f"Process tool results returning messages: {len(state['messages'] + tool_messages + [final_response])}")
     return {"messages": state["messages"] + tool_messages + [final_response]}
 
-def tools_node(state: MessagesState, config: dict) -> dict:
-    """Wrapper for tool execution node."""
+def tools_node(state: MessagesState) -> dict:
     state["messages"] = convert_messages(state["messages"])
-    logger.info(f"Tools node input messages: {[type(m) for m in state['messages']]}")
     return tool_node(state)
 
-# Build and compile the graph
+# Define and compile the graph
 general_assistant_graph = StateGraph(MessagesState)
 general_assistant_graph.add_node("assist", assist)
 general_assistant_graph.add_node("tools", tools_node)

@@ -8,7 +8,7 @@ import logging
 from langgraph.graph import StateGraph, MessagesState, END
 from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, news_tool, calc_tool
 from langstuff_multi_agent.config import get_llm
-from langchain_core.messages import AIMessage, SystemMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage, HumanMessage
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -16,15 +16,19 @@ logger.setLevel(logging.INFO)
 # Helper function to convert messages to BaseMessage objects
 def convert_message(msg):
     if isinstance(msg, dict):
-        msg_type = msg.get("type")
+        msg_type = msg.get("type", msg.get("role"))  # Support both "type" and "role"
         if msg_type == "human":
             return HumanMessage(content=msg.get("content", ""))
-        elif msg_type == "assistant":
+        elif msg_type == "assistant" or msg_type == "ai":
             return AIMessage(content=msg.get("content", ""), tool_calls=msg.get("tool_calls", []))
         elif msg_type == "system":
             return SystemMessage(content=msg.get("content", ""))
         elif msg_type == "tool":
-            return ToolMessage(content=msg.get("content", ""), tool_call_id=msg.get("tool_call_id", ""), name=msg.get("name", ""))
+            return ToolMessage(
+                content=msg.get("content", ""),
+                tool_call_id=msg.get("tool_call_id", ""),
+                name=msg.get("name", "")
+            )
         else:
             raise ValueError(f"Unknown message type: {msg_type}")
     return msg
@@ -57,6 +61,7 @@ def marketing(state: MessagesState, config: dict) -> dict:
         ))
     ])
     
+    # Ensure response is an AIMessage
     if isinstance(response, dict):
         content = response.get("content", "")
         raw_tool_calls = response.get("tool_calls", [])
@@ -94,6 +99,7 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
     
+    # Ensure final_response is an AIMessage
     if isinstance(final_response, dict):
         content = final_response.get("content", "Task completed")
         raw_tool_calls = final_response.get("tool_calls", [])

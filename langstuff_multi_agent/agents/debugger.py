@@ -6,9 +6,9 @@ This module provides a workflow for debugging code using various tools and LLM-b
 
 import logging
 from langgraph.graph import StateGraph, MessagesState, END
-from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, python_repl, read_file, write_file, calc_tool
+from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, python_repl, read_file, write_file, calc_tool, news_tool
 from langstuff_multi_agent.config import ConfigSchema, get_llm
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, ToolMessage
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -38,24 +38,30 @@ def analyze_code(state: MessagesState, config: dict) -> dict:
     return {"messages": [response]}
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
-    """Processes tool outputs and formats final response."""
     last_message = state["messages"][-1]
     if not last_message.tool_calls:
         return state
 
     tool_messages = []
     for tc in last_message.tool_calls:
-        tool = next(t for t in [search_web, python_repl, read_file, write_file, calc_tool] if t.name == tc["name"])
-        output = tool.invoke(tc["args"])
-        tool_messages.append({
-            "role": "tool",
-            "content": output,
-            "tool_call_id": tc["id"]
-        })
+        tool = next(t for t in [search_web, news_tool, calc_tool] if t.name == tc["name"])
+        try:
+            output = tool.invoke(tc["args"])
+            tool_messages.append(ToolMessage(
+                content=str(output),
+                tool_call_id=tc["id"],
+                name=tc["name"]
+            ))
+        except Exception as e:
+            logger.error(f"Tool execution failed: {str(e)}")
+            tool_messages.append(ToolMessage(
+                content=f"Error: {str(e)}",
+                tool_call_id=tc["id"],
+                name=tc["name"]
+            ))
 
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
-    final_response.additional_kwargs["final_answer"] = True
     return {"messages": state["messages"] + tool_messages + [final_response]}
 
 # Define a wrapper for the tools node to avoid passing config

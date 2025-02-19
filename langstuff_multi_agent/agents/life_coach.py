@@ -7,23 +7,51 @@ This module provides a workflow for offering lifestyle tips and personal develop
 import logging
 from langgraph.graph import StateGraph, MessagesState, END
 from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, get_current_weather, calendar_tool, save_memory, search_memories
-from langstuff_multi_agent.config import ConfigSchema, get_llm
-from langchain_core.messages import SystemMessage
+from langstuff_multi_agent.config import get_llm
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage, HumanMessage
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+# Helper function to convert messages to BaseMessage objects
+def convert_message(msg):
+    if isinstance(msg, dict):
+        msg_type = msg.get("type", msg.get("role"))  # Support both "type" and "role"
+        if msg_type == "human":
+            return HumanMessage(content=msg.get("content", ""))
+        elif msg_type == "assistant" or msg_type == "ai":
+            return AIMessage(content=msg.get("content", ""), tool_calls=msg.get("tool_calls", []))
+        elif msg_type == "system":
+            return SystemMessage(content=msg.get("content", ""))
+        elif msg_type == "tool":
+            return ToolMessage(
+                content=msg.get("content", ""),
+                tool_call_id=msg.get("tool_call_id", ""),
+                name=msg.get("name", "")
+            )
+        else:
+            raise ValueError(f"Unknown message type: {msg_type}")
+    return msg
+
+def convert_messages(messages):
+    return [convert_message(msg) for msg in messages]
+
 def life_coach(state: MessagesState, config: dict) -> dict:
     """Provide life coaching and personal advice."""
+    # Convert incoming messages to BaseMessage objects
+    state["messages"] = convert_messages(state["messages"])
+    messages = state["messages"]
+    
     llm = get_llm(config.get("configurable", {}))
     tools = [search_web, get_current_weather, calendar_tool, save_memory, search_memories]
-    llm = llm.bind_tools(tools)
-    messages = state["messages"]
+    llm_with_tools = llm.bind_tools(tools)
+    
     if "user_id" in config.get("configurable", {}):
         preferences = search_memories.invoke("lifestyle preferences", config)
         if preferences:
             messages.append(SystemMessage(content=f"User preferences: {preferences}"))
-    response = llm.invoke(messages + [
+    
+    response = llm_with_tools.invoke(messages + [
         SystemMessage(content=(
             "You are a Life Coach Agent. Your task is to offer lifestyle tips and personal development advice.\n"
             "You have access to the following tools:\n"
@@ -38,12 +66,28 @@ def life_coach(state: MessagesState, config: dict) -> dict:
             "3. Offer actionable suggestions."
         ))
     ])
+    
+    # Ensure response is an AIMessage
+    if isinstance(response, dict):
+        content = response.get("content", "")
+        raw_tool_calls = response.get("tool_calls", [])
+        tool_calls = [
+            {"id": tc.get("id", ""), "name": tc.get("name", ""), "args": tc.get("args", {})}
+            if isinstance(tc, dict) else tc
+            for tc in raw_tool_calls
+        ]
+        response = AIMessage(content=content, tool_calls=tool_calls)
+    elif not isinstance(response, AIMessage):
+        response = AIMessage(content=str(response))
+    
     if not response.tool_calls:
         response.additional_kwargs["final_answer"] = True
     return {"messages": [response]}
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
     """Processes tool outputs and formats final response."""
+    # Convert messages to BaseMessage objects
+    state["messages"] = convert_messages(state["messages"])
     last_message = state["messages"][-1]
     if not last_message.tool_calls:
         return state
@@ -52,25 +96,39 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     for tc in last_message.tool_calls:
         tool = next(t for t in [search_web, get_current_weather, calendar_tool, save_memory, search_memories] if t.name == tc["name"])
         output = tool.invoke(tc["args"], config=config if tc["name"] in ["save_memory", "search_memories"] else None)
-        tool_messages.append({
-            "role": "tool",
-            "content": output,
-            "tool_call_id": tc["id"]
-        })
+        tool_messages.append(ToolMessage(
+            content=str(output),
+            tool_call_id=tc["id"],
+            name=tc["name"]
+        ))
 
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
+    
+    # Ensure final_response is an AIMessage
+    if isinstance(final_response, dict):
+        content = final_response.get("content", "Task completed")
+        raw_tool_calls = final_response.get("tool_calls", [])
+        tool_calls = [
+            {"id": tc.get("id", ""), "name": tc.get("name", ""), "args": tc.get("args", {})}
+            for tc in raw_tool_calls
+        ]
+        final_response = AIMessage(content=content, tool_calls=tool_calls)
+    elif not isinstance(final_response, AIMessage):
+        final_response = AIMessage(content=str(final_response))
+    
     final_response.additional_kwargs["final_answer"] = True
     return {"messages": state["messages"] + tool_messages + [final_response]}
 
 # Define a wrapper for the tools node to avoid passing config
 def tools_node(state: MessagesState) -> dict:
+    state["messages"] = convert_messages(state["messages"])
     return tool_node(state)
 
 # Define and compile the graph
 life_coach_graph = StateGraph(MessagesState)
 life_coach_graph.add_node("life_coach", life_coach)
-life_coach_graph.add_node("tools", tools_node)  # Use wrapped tools_node
+life_coach_graph.add_node("tools", tools_node)
 life_coach_graph.add_node("process_results", process_tool_results)
 life_coach_graph.set_entry_point("life_coach")
 life_coach_graph.add_conditional_edges(

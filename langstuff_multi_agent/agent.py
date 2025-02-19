@@ -5,7 +5,7 @@ Entry point for the LangGraph multi-agent system.
 import logging
 from langstuff_multi_agent.agents.supervisor import create_supervisor
 from langstuff_multi_agent.config import get_llm
-from langgraph.checkpoint.memory import MemorySaver
+from langstuff_multi_agent.utils.memory import LangGraphMemoryCheckpointer, memory_manager
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +15,7 @@ logger.info("Initializing supervisor workflow with preprocessing...")
 
 # Create and compile the supervisor graph
 try:
-    supervisor_graph = create_supervisor(llm=get_llm()).compile(checkpointer=MemorySaver())
+    supervisor_graph = create_supervisor(llm=get_llm()).compile(checkpointer=LangGraphMemoryCheckpointer(memory_manager))
     logger.info("Graph compiled successfully")
 except Exception as e:
     logger.error(f"Graph compilation failed: {str(e)}", exc_info=True)
