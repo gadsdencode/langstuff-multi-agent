@@ -75,25 +75,34 @@ class RouteDecision(BaseModel):
         'creative_content', 'financial_analyst', 'FINISH'
     ] = Field(..., description="Target agent or FINISH")
 
+# Helper function to convert messages to BaseMessage objects
+def convert_message(msg):
+    if isinstance(msg, dict):
+        msg_type = msg.get("type")
+        if msg_type == "human":
+            return HumanMessage(content=msg.get("content", ""))
+        elif msg_type == "assistant":
+            return AIMessage(content=msg.get("content", ""), tool_calls=msg.get("tool_calls", []))
+        elif msg_type == "system":
+            return SystemMessage(content=msg.get("content", ""))
+        elif msg_type == "tool":
+            return ToolMessage(content=msg.get("content", ""), tool_call_id=msg.get("tool_call_id", ""), name=msg.get("name", ""))
+        else:
+            raise ValueError(f"Unknown message type: {msg_type}")
+    return msg
+
+def convert_messages(messages):
+    return [convert_message(msg) for msg in messages]
+
 # Preprocess input messages
 def preprocess_input(state: SupervisorState, config: RunnableConfig) -> Dict[str, Any]:
     """
     Converts raw input into a list of BaseMessage objects.
     """
-    messages = state.get("messages", [])
+    messages = convert_messages(state.get("messages", []))
     if not messages:
         raw_input = state.get("messages", []) or [{"type": "human", "content": "Hello"}]
-        messages = []
-        for msg in raw_input:
-            if isinstance(msg, dict):
-                role = msg.get("type", "human")
-                content = msg.get("content", "")
-                if role == "human":
-                    messages.append(HumanMessage(content=content))
-                else:
-                    messages.append(BaseMessage(content=content, type=role))
-            elif isinstance(msg, BaseMessage):
-                messages.append(msg)
+        messages = convert_messages(raw_input)
     logger.info(f"Preprocess output: {messages}")
     return {"messages": messages, "error_count": 0}
 
@@ -102,6 +111,7 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
     """
     Determines the next agent to route to based on the current state.
     """
+    state["messages"] = convert_messages(state["messages"])
     messages = state["messages"]
     if not messages:
         return {
@@ -131,7 +141,7 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
     )
     structured_llm = get_llm().with_structured_output(RouteDecision)
     try:
-        decision = structured_llm.invoke([SystemMessage(content=system_prompt), *messages])
+        decision = structured_llm.invoke([SystemMessage(content=system_prompt)] + messages)
         next_destination = decision.destination if decision.destination in AVAILABLE_AGENTS + ["FINISH"] else "general_assistant"
         return {
             "next": next_destination,
@@ -157,30 +167,22 @@ def create_supervisor(llm) -> StateGraph:
     workflow.add_node("preprocess", preprocess_input)
     workflow.add_node("supervisor", supervisor_logic)
 
-    # Track successfully added agents
     added_agents = []
-
     for name in AVAILABLE_AGENTS:
         try:
             subgraph = member_graphs[name]
-
-            # Factory function to create a unique wrapper for each subgraph
             def make_subgraph_node(subgraph):
                 def subgraph_node(state: SupervisorState, config: RunnableConfig) -> SupervisorState:
-                    # Prepare the subgraph state with messages
+                    state["messages"] = convert_messages(state["messages"])
                     subgraph_state = {"messages": state["messages"]}
                     try:
-                        # Attempt to call the subgraph with config as a keyword argument
                         result = subgraph(subgraph_state, config=config.dict())
                     except TypeError:
-                        # Fallback to calling without config if not supported
                         result = subgraph(subgraph_state)
-                    # Update the supervisor state with the subgraph's output
-                    state["messages"] = result["messages"]
+                    state["messages"] = convert_messages(result["messages"])
                     return state
                 return subgraph_node
 
-            # Create and add the specific wrapper function as a node
             specific_subgraph_node = make_subgraph_node(subgraph)
             workflow.add_node(name, specific_subgraph_node)
             workflow.add_edge(name, "supervisor")
@@ -189,7 +191,6 @@ def create_supervisor(llm) -> StateGraph:
         except Exception as e:
             logger.error(f"Failed to add node {name}: {str(e)}", exc_info=True)
 
-    # Define conditional edges based on successfully added agents
     workflow.add_conditional_edges(
         "supervisor",
         lambda state: state["next"],
@@ -202,5 +203,4 @@ def create_supervisor(llm) -> StateGraph:
 # Instantiate the supervisor workflow
 supervisor_workflow = create_supervisor(llm=get_llm())
 
-# Export public symbols
 __all__ = ["create_supervisor", "supervisor_workflow", "SupervisorState", "member_graphs"]

@@ -7,20 +7,42 @@ This module provides a workflow for addressing general user requests using a var
 from langgraph.graph import StateGraph, MessagesState, END
 from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, get_current_weather, news_tool
 from langstuff_multi_agent.config import get_llm
-from langchain_core.messages import AIMessage, SystemMessage, BaseMessage, ToolMessage, ToolCall
+from langchain_core.messages import AIMessage, SystemMessage, BaseMessage, ToolMessage, ToolCall, HumanMessage
 import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+# Helper function to convert messages to BaseMessage objects
+def convert_message(msg):
+    if isinstance(msg, dict):
+        msg_type = msg.get("type")
+        if msg_type == "human":
+            return HumanMessage(content=msg.get("content", ""))
+        elif msg_type == "assistant":
+            return AIMessage(content=msg.get("content", ""), tool_calls=msg.get("tool_calls", []))
+        elif msg_type == "system":
+            return SystemMessage(content=msg.get("content", ""))
+        elif msg_type == "tool":
+            return ToolMessage(content=msg.get("content", ""), tool_call_id=msg.get("tool_call_id", ""), name=msg.get("name", ""))
+        else:
+            raise ValueError(f"Unknown message type: {msg_type}")
+    return msg
+
+def convert_messages(messages):
+    return [convert_message(msg) for msg in messages]
+
 def assist(state: MessagesState, config: dict) -> dict:
     """Provide general assistance with configuration support."""
     logger.info(f"Assist config received: type={type(config)}, value={config}")
+    # Convert messages to BaseMessage objects
+    state["messages"] = convert_messages(state["messages"])
+    logger.info(f"Assist input state: {state}")
+    
     llm = get_llm(config.get("configurable", {}))
     tools = [search_web, get_current_weather, news_tool]
     llm_with_tools = llm.bind_tools(tools)
     
-    logger.info(f"Assist input state: {state}")
     messages = state["messages"]
     system_prompt = SystemMessage(content=(
         "You are a General Assistant Agent. Your task is to assist with a variety of general queries and tasks.\n\n"
@@ -38,7 +60,6 @@ def assist(state: MessagesState, config: dict) -> dict:
     response = llm_with_tools.invoke([system_prompt] + messages)
     logger.info(f"LLM response: type={type(response)}, value={response}")
     
-    # Ensure response is an AIMessage
     if isinstance(response, dict):
         content = response.get("content", "")
         raw_tool_calls = response.get("tool_calls", [])
@@ -51,7 +72,6 @@ def assist(state: MessagesState, config: dict) -> dict:
     elif not isinstance(response, AIMessage):
         response = AIMessage(content=str(response))
 
-    # Add final_answer if no tool calls
     if not response.tool_calls:
         response.additional_kwargs["final_answer"] = True
 
@@ -61,6 +81,8 @@ def assist(state: MessagesState, config: dict) -> dict:
 def process_tool_results(state: MessagesState, config: dict) -> dict:
     """Processes tool outputs and formats final response."""
     logger.info(f"Process tool results config: type={type(config)}, value={config}")
+    # Convert messages to BaseMessage objects
+    state["messages"] = convert_messages(state["messages"])
     last_message = state["messages"][-1]
     
     tool_calls = getattr(last_message, 'tool_calls', [])
@@ -85,7 +107,6 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
     
-    # Ensure final_response is an AIMessage
     if isinstance(final_response, dict):
         content = final_response.get("content", "Task completed")
         raw_tool_calls = final_response.get("tool_calls", [])
@@ -102,12 +123,13 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
 
 # Define a wrapper for the tools node to avoid passing config
 def tools_node(state: MessagesState, config: dict) -> dict:
+    state["messages"] = convert_messages(state["messages"])  # Ensure messages are converted here too
     return tool_node(state)
 
 # Define and compile the graph
 general_assistant_graph = StateGraph(MessagesState)
 general_assistant_graph.add_node("assist", assist)
-general_assistant_graph.add_node("tools", lambda state, config: tools_node(state, config))
+general_assistant_graph.add_node("tools", tools_node)
 general_assistant_graph.add_node("process_results", process_tool_results)
 general_assistant_graph.set_entry_point("assist")
 general_assistant_graph.add_conditional_edges(
