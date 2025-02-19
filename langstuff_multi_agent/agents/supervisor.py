@@ -164,24 +164,24 @@ def create_supervisor(llm) -> StateGraph:
         try:
             subgraph = member_graphs[name]
 
-            # Define a wrapper function that captures the specific subgraph
+            # Factory function to create a unique wrapper for each subgraph
             def make_subgraph_node(subgraph):
-                def subgraph_node(state, config):
+                def subgraph_node(state: SupervisorState, config: RunnableConfig) -> SupervisorState:
+                    # Prepare the subgraph state with messages
                     subgraph_state = {"messages": state["messages"]}
                     try:
-                        # Try to call with config
+                        # Attempt to call the subgraph with config
                         result = subgraph(subgraph_state, config)
                     except TypeError:
-                        # If config is not accepted, call without it
+                        # Fallback to calling without config if not supported
                         result = subgraph(subgraph_state)
+                    # Update the supervisor state with the subgraph's output
                     state["messages"] = result["messages"]
                     return state
                 return subgraph_node
 
-            # Create the specific wrapper function for this subgraph
+            # Create and add the specific wrapper function as a node
             specific_subgraph_node = make_subgraph_node(subgraph)
-
-            # Add the specific wrapper function as the node
             workflow.add_node(name, specific_subgraph_node)
             workflow.add_edge(name, "supervisor")
             added_agents.append(name)
@@ -189,7 +189,7 @@ def create_supervisor(llm) -> StateGraph:
         except Exception as e:
             logger.error(f"Failed to add node {name}: {str(e)}", exc_info=True)
 
-    # Only include successfully added agents in conditional edges
+    # Define conditional edges based on successfully added agents
     workflow.add_conditional_edges(
         "supervisor",
         lambda state: state["next"],

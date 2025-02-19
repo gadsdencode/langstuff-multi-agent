@@ -36,15 +36,12 @@ def assist(state: MessagesState, config: dict) -> dict:
     ))
     
     # Invoke LLM and ensure response is an AIMessage
-    response = llm_with_tools.invoke(messages + [system_prompt])
+    response = llm_with_tools.invoke([system_prompt] + messages)
     logger.info(f"LLM response: {type(response)} - {response}")
     
     if not isinstance(response, AIMessage):
-        if isinstance(response, dict):
-            content = response.get("content", "I’m your General Assistant—how can I help?")
-            response = AIMessage(content=content)
-        else:
-            response = AIMessage(content=str(response))
+        content = response.get("content", "I’m your General Assistant—how can I help?") if isinstance(response, dict) else str(response)
+        response = AIMessage(content=content)
     
     # Set final_answer if no tool calls
     if not hasattr(response, "tool_calls") or not response.tool_calls:
@@ -75,10 +72,8 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     logger.info(f"Final response: {type(final_response)} - {final_response}")
     
     if not isinstance(final_response, AIMessage):
-        if isinstance(final_response, dict):
-            final_response = AIMessage(content=final_response.get("content", "Task completed"))
-        else:
-            final_response = AIMessage(content=str(final_response))
+        content = final_response.get("content", "Task completed") if isinstance(final_response, dict) else str(final_response)
+        final_response = AIMessage(content=content)
     final_response.additional_kwargs["final_answer"] = True
     
     return {"messages": state["messages"] + tool_messages + [final_response]}
