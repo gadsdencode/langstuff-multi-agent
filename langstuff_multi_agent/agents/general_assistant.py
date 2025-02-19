@@ -20,9 +20,7 @@ def assist(state: MessagesState, config: dict) -> dict:
     tools = [search_web, get_current_weather, news_tool]
     llm_with_tools = llm.bind_tools(tools)
     
-    # Log incoming state
     logger.info(f"Assist input state: {state}")
-    
     messages = state["messages"]
     system_prompt = SystemMessage(content=(
         "You are a General Assistant Agent. Your task is to assist with a variety of general queries and tasks.\n\n"
@@ -40,23 +38,22 @@ def assist(state: MessagesState, config: dict) -> dict:
     response = llm_with_tools.invoke([system_prompt] + messages)
     logger.info(f"LLM response: type={type(response)}, value={response}")
     
-    # Convert raw tool calls to proper objects (from LangChain v0.1 docs)
+    # Ensure response is an AIMessage
     if isinstance(response, dict):
+        content = response.get("content", "")
         raw_tool_calls = response.get("tool_calls", [])
         tool_calls = [
-            ToolCall(**tc) if isinstance(tc, dict) else tc
+            ToolCall(id=tc.get("id", ""), name=tc.get("name", ""), args=tc.get("args", {}))
+            if isinstance(tc, dict) else tc
             for tc in raw_tool_calls
         ]
-        response = AIMessage(
-            content=response.get("content", ""),
-            tool_calls=tool_calls
-        )
-    else:
-        # Ensure existing tool calls are proper objects
-        response.tool_calls = [
-            ToolCall(**tc) if isinstance(tc, dict) else tc
-            for tc in getattr(response, 'tool_calls', [])
-        ]
+        response = AIMessage(content=content, tool_calls=tool_calls)
+    elif not isinstance(response, AIMessage):
+        response = AIMessage(content=str(response))
+
+    # Add final_answer if no tool calls
+    if not response.tool_calls:
+        response.additional_kwargs["final_answer"] = True
 
     logger.info(f"Returning response: {response}")
     return {"messages": [response]}
@@ -66,7 +63,6 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     logger.info(f"Process tool results config: type={type(config)}, value={config}")
     last_message = state["messages"][-1]
     
-    # Convert to ToolCall objects if needed (from LangChain docs)
     tool_calls = getattr(last_message, 'tool_calls', [])
     if not tool_calls:
         return state
@@ -74,16 +70,11 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     logger.info(f"Processing tool calls: {tool_calls}")
     tool_messages = []
     for tc in tool_calls:
-        # Safely handle both dict and ToolCall types
         tool_name = tc.name if isinstance(tc, ToolCall) else tc.get("name")
         tool_args = tc.args if isinstance(tc, ToolCall) else tc.get("args")
         tool_id = tc.id if isinstance(tc, ToolCall) else tc.get("id")
         
-        # Find matching tool (from search results example)
-        tool = next(
-            t for t in [search_web, get_current_weather, news_tool]
-            if t.name == tool_name
-        )
+        tool = next(t for t in [search_web, get_current_weather, news_tool] if t.name == tool_name)
         output = tool.invoke(tool_args)
         tool_messages.append(ToolMessage(
             content=str(output),
@@ -93,18 +84,20 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
 
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
-
-    if not isinstance(final_response, AIMessage):
-        if isinstance(final_response, dict):
-            content = final_response.get("content", "Task completed")
-            raw_tool_calls = final_response.get("tool_calls", [])
-            tool_calls = [ToolCall(**tc) for tc in raw_tool_calls]
-            final_response = AIMessage(content=content, tool_calls=tool_calls)
-        else:
-            final_response = AIMessage(content=str(final_response))
+    
+    # Ensure final_response is an AIMessage
+    if isinstance(final_response, dict):
+        content = final_response.get("content", "Task completed")
+        raw_tool_calls = final_response.get("tool_calls", [])
+        tool_calls = [
+            ToolCall(id=tc.get("id", ""), name=tc.get("name", ""), args=tc.get("args", {}))
+            for tc in raw_tool_calls
+        ]
+        final_response = AIMessage(content=content, tool_calls=tool_calls)
+    elif not isinstance(final_response, AIMessage):
+        final_response = AIMessage(content=str(final_response))
 
     final_response.additional_kwargs["final_answer"] = True
-
     return {"messages": state["messages"] + tool_messages + [final_response]}
 
 # Define a wrapper for the tools node to avoid passing config
