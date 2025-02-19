@@ -164,18 +164,25 @@ def create_supervisor(llm) -> StateGraph:
         try:
             subgraph = member_graphs[name]
 
-            # Define a wrapper function for the subgraph node
-            def subgraph_node(state):
-                # Extract messages from supervisor state
-                subgraph_state = {"messages": state["messages"]}
-                # Run the subgraph
-                result = subgraph.run(subgraph_state)
-                # Update the supervisor's messages
-                state["messages"] = result["messages"]
-                return state
+            # Define a wrapper function that captures the specific subgraph
+            def make_subgraph_node(subgraph):
+                def subgraph_node(state, config):
+                    subgraph_state = {"messages": state["messages"]}
+                    try:
+                        # Try to call with config
+                        result = subgraph(subgraph_state, config)
+                    except TypeError:
+                        # If config is not accepted, call without it
+                        result = subgraph(subgraph_state)
+                    state["messages"] = result["messages"]
+                    return state
+                return subgraph_node
 
-            # Add the wrapper function as the node
-            workflow.add_node(name, subgraph_node)
+            # Create the specific wrapper function for this subgraph
+            specific_subgraph_node = make_subgraph_node(subgraph)
+
+            # Add the specific wrapper function as the node
+            workflow.add_node(name, specific_subgraph_node)
             workflow.add_edge(name, "supervisor")
             added_agents.append(name)
             logger.info(f"Successfully added node: {name}")
