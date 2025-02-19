@@ -9,7 +9,7 @@ from langgraph.graph import StateGraph, MessagesState, END
 from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, get_current_weather, calendar_tool
 from langstuff_multi_agent.config import get_llm
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage, HumanMessage, ToolCall
-from langchain_core.pydantic import BaseModel
+from langchain_core.pydantic_v1 import BaseModel
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
