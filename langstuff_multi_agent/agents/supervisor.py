@@ -144,10 +144,10 @@ def create_supervisor(llm) -> StateGraph:
                     state["messages"] = convert_messages(state["messages"])
                     subgraph_state = {"messages": state["messages"]}
                     try:
-                        # Convert config to dict
-                        config_dict = config.dict()
+                        # Handle both Pydantic models and raw dicts
+                        config_dict = config.dict() if hasattr(config, 'dict') else config
                         result = subgraph(subgraph_state, config_dict)
-                    except TypeError:
+                    except (TypeError, AttributeError):
                         result = subgraph(subgraph_state)
                     state["messages"] = convert_messages(result["messages"])
                     return state
