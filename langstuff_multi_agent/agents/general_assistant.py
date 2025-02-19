@@ -51,32 +51,28 @@ def assist(state: MessagesState, config: dict) -> dict:
                 content=response.content,
                 additional_kwargs={**response.additional_kwargs, "final_answer": True}
             )
-    
+
     logger.info(f"Returning response: {response}")
     return {"messages": [response]}
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
-    """Processes tool outputs and formats final response."""
-    logger.info(f"Process tool results config: type={type(config)}, value={config}")
     last_message = state["messages"][-1]
     if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
         return state
-    
-    logger.info(f"Processing tool calls: {last_message.tool_calls}")
+
     tool_messages = []
     for tc in last_message.tool_calls:
-        tool = next(t for t in [search_web, get_current_weather, news_tool] if t.name == tc["name"])
-        output = tool.invoke(tc["args"])
+        tool = next(t for t in [search_web, get_current_weather, news_tool] if t.name == tc.name)
+        output = tool.invoke(tc.args)
         tool_messages.append(ToolMessage(
             content=output,
-            tool_call_id=tc["id"],
-            name=tc["name"]
+            tool_call_id=tc.id,
+            name=tc.name
         ))
-    
+
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
-    logger.info(f"Final response: type={type(final_response)}, value={final_response}")
-    
+
     if not isinstance(final_response, AIMessage):
         if isinstance(final_response, dict):
             content = final_response.get("content", "Task completed")
@@ -85,9 +81,9 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
             final_response = AIMessage(content=content, tool_calls=tool_calls)
         else:
             final_response = AIMessage(content=str(final_response))
-    
+
     final_response.additional_kwargs["final_answer"] = True
-    
+
     return {"messages": state["messages"] + tool_messages + [final_response]}
 
 # Define a wrapper for the tools node to avoid passing config
