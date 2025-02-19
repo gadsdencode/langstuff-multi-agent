@@ -1,14 +1,15 @@
 """
-Project Manager Agent module for task and timeline management.
+Personal Assistant Agent module for handling personal tasks and queries.
 
-This module provides a workflow for overseeing project schedules and coordinating tasks using various tools.
+This module provides a workflow for assisting with scheduling, reminders, and general information using various tools.
 """
 
 import logging
 from langgraph.graph import StateGraph, MessagesState, END
-from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, python_repl
+from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, get_current_weather, calendar_tool
 from langstuff_multi_agent.config import get_llm
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage, HumanMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage, HumanMessage, ToolCall
+from langchain_core.pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -36,68 +37,70 @@ def convert_message(msg):
 def convert_messages(messages):
     return [convert_message(msg) for msg in messages]
 
-def manage(state: MessagesState, config: dict) -> dict:
-    """Project management agent that coordinates tasks and timelines."""
-    # Convert incoming messages to BaseMessage objects
+system_prompt = SystemMessage(content=(
+    "You are a Personal Assistant Agent. Your task is to help with a variety of personal tasks and queries, such as scheduling, reminders, and general information.\n\n"
+    "You have access to the following tools:\n"
+    "- search_web: Provide general information and answer questions.\n"
+    "- get_current_weather: Retrieve current weather updates.\n"
+    "- calendar_tool: Schedule events and manage your calendar.\n\n"
+    "Instructions:\n"
+    "1. Understand the user's request.\n"
+    "2. Use the available tools to gather relevant information when needed.\n"
+    "3. Provide clear, concise, and helpful responses to assist the user."
+))
+
+def assist(state: MessagesState, config: dict) -> dict:
+    """Provide personal assistance with configuration support."""
     state["messages"] = convert_messages(state["messages"])
+    logger.info(f"Assist input state: {state}")
     
     llm = get_llm(config.get("configurable", {}))
-    tools = [search_web, python_repl]
+    tools = [search_web, get_current_weather, calendar_tool]
     llm_with_tools = llm.bind_tools(tools)
-    response = llm_with_tools.invoke(state["messages"] + [
-        SystemMessage(content=(
-            "You are a Project Manager Agent. Your task is to oversee project schedules and coordinate tasks.\n"
-            "Use tools like search_web and python_repl to gather info or perform calculations.\n"
-            "Provide actionable plans or updates."
-        ))
-    ])
     
-    # Ensure response is an AIMessage
+    messages = state["messages"]
+    response = llm_with_tools.invoke(messages + [system_prompt])
+    
     if isinstance(response, dict):
         content = response.get("content", "")
-        raw_tool_calls = response.get("tool_calls", [])
-        tool_calls = [
-            {"id": tc.get("id", ""), "name": tc.get("name", ""), "args": tc.get("args", {})}
-            if isinstance(tc, dict) else tc
-            for tc in raw_tool_calls
-        ]
+        raw_tool_calls = response.get("tool_calls", [])  # List of dicts
+        tool_calls = [ToolCall(**tc) for tc in raw_tool_calls]
         response = AIMessage(content=content, tool_calls=tool_calls)
     elif not isinstance(response, AIMessage):
         response = AIMessage(content=str(response))
     
     if not response.tool_calls:
         response.additional_kwargs["final_answer"] = True
+    
+    logger.info(f"Returning response: {response}")
     return {"messages": [response]}
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
     """Processes tool outputs and formats final response."""
-    # Convert messages to BaseMessage objects
     state["messages"] = convert_messages(state["messages"])
     last_message = state["messages"][-1]
-    if not last_message.tool_calls:
+    
+    tool_calls = last_message.tool_calls if isinstance(last_message, AIMessage) else []
+    if not tool_calls:
         return state
-
+    
     tool_messages = []
-    for tc in last_message.tool_calls:
-        tool = next(t for t in [search_web, python_repl] if t.name == tc["name"])
-        output = tool.invoke(tc["args"])
+    for tc in tool_calls:
+        tool = next(t for t in [search_web, get_current_weather, calendar_tool] if t.name == tc.name)
+        output = tool.invoke(tc.args)
         tool_messages.append(ToolMessage(
             content=str(output),
-            tool_call_id=tc["id"],
-            name=tc["name"]
+            tool_call_id=tc.id,
+            name=tc.name
         ))
 
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
     
-    # Ensure final_response is an AIMessage
     if isinstance(final_response, dict):
         content = final_response.get("content", "Task completed")
-        raw_tool_calls = final_response.get("tool_calls", [])
-        tool_calls = [
-            {"id": tc.get("id", ""), "name": tc.get("name", ""), "args": tc.get("args", {})}
-            for tc in raw_tool_calls
-        ]
+        raw_tool_calls = final_response.get("tool_calls", [])  # List of dicts
+        tool_calls = [ToolCall(**tc) for tc in raw_tool_calls]
         final_response = AIMessage(content=content, tool_calls=tool_calls)
     elif not isinstance(final_response, AIMessage):
         final_response = AIMessage(content=str(final_response))
@@ -105,24 +108,22 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     final_response.additional_kwargs["final_answer"] = True
     return {"messages": state["messages"] + tool_messages + [final_response]}
 
-# Define a wrapper for the tools node to avoid passing config
 def tools_node(state: MessagesState) -> dict:
     state["messages"] = convert_messages(state["messages"])
     return tool_node(state)
 
-# Define and compile the graph
-project_manager_graph = StateGraph(MessagesState)
-project_manager_graph.add_node("manage", manage)
-project_manager_graph.add_node("tools", tools_node)
-project_manager_graph.add_node("process_results", process_tool_results)
-project_manager_graph.set_entry_point("manage")
-project_manager_graph.add_conditional_edges(
-    "manage",
+personal_assistant_graph = StateGraph(MessagesState)
+personal_assistant_graph.add_node("assist", assist)
+personal_assistant_graph.add_node("tools", tools_node)
+personal_assistant_graph.add_node("process_results", process_tool_results)
+personal_assistant_graph.set_entry_point("assist")
+personal_assistant_graph.add_conditional_edges(
+    "assist",
     lambda state: "tools" if has_tool_calls(state["messages"]) else END,
     {"tools": "tools", END: END}
 )
-project_manager_graph.add_edge("tools", "process_results")
-project_manager_graph.add_edge("process_results", "manage")
-project_manager_graph = project_manager_graph.compile()
+personal_assistant_graph.add_edge("tools", "process_results")
+personal_assistant_graph.add_edge("process_results", "assist")
+personal_assistant_graph = personal_assistant_graph.compile()
 
-__all__ = ["project_manager_graph"]
+__all__ = ["personal_assistant_graph"]

@@ -12,50 +12,21 @@ from langgraph.graph.message import add_messages
 import operator
 from langstuff_multi_agent.config import get_llm
 
-# Import all agent graphs
-from langstuff_multi_agent.agents.debugger import debugger_graph
-from langstuff_multi_agent.agents.context_manager import context_manager_graph
-from langstuff_multi_agent.agents.project_manager import project_manager_graph
-from langstuff_multi_agent.agents.professional_coach import professional_coach_graph
-from langstuff_multi_agent.agents.life_coach import life_coach_graph
-from langstuff_multi_agent.agents.coder import coder_graph
-from langstuff_multi_agent.agents.analyst import analyst_graph
-from langstuff_multi_agent.agents.researcher import researcher_graph
-from langstuff_multi_agent.agents.general_assistant import general_assistant_graph
-from langstuff_multi_agent.agents.news_reporter import news_reporter_graph
-from langstuff_multi_agent.agents.customer_support import customer_support_graph
-from langstuff_multi_agent.agents.marketing_strategist import marketing_strategist_graph
-from langstuff_multi_agent.agents.creative_content import creative_content_graph
-from langstuff_multi_agent.agents.financial_analyst import financial_analyst_graph
+# Import the personal_assistant graph
+from langstuff_multi_agent.agents.personal_assistant import personal_assistant_graph
 
 # Set up logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Define all available agents
+# Define available agents (only personal_assistant)
 AVAILABLE_AGENTS = [
-    'debugger', 'context_manager', 'project_manager', 'professional_coach',
-    'life_coach', 'coder', 'analyst', 'researcher', 'general_assistant',
-    'news_reporter', 'customer_support', 'marketing_strategist',
-    'creative_content', 'financial_analyst'
+    'personal_assistant'
 ]
 
-# Map agent names to their respective graphs
+# Map agent names to their graphs
 member_graphs = {
-    "debugger": debugger_graph,
-    "context_manager": context_manager_graph,
-    "project_manager": project_manager_graph,
-    "professional_coach": professional_coach_graph,
-    "life_coach": life_coach_graph,
-    "coder": coder_graph,
-    "analyst": analyst_graph,
-    "researcher": researcher_graph,
-    "general_assistant": general_assistant_graph,
-    "news_reporter": news_reporter_graph,
-    "customer_support": customer_support_graph,
-    "marketing_strategist": marketing_strategist_graph,
-    "creative_content": creative_content_graph,
-    "financial_analyst": financial_analyst_graph
+    "personal_assistant": personal_assistant_graph,
 }
 
 # Define the state structure for the supervisor
@@ -69,10 +40,7 @@ class SupervisorState(TypedDict):
 class RouteDecision(BaseModel):
     reasoning: str = Field(..., description="Step-by-step routing logic")
     destination: Literal[
-        'debugger', 'context_manager', 'project_manager', 'professional_coach',
-        'life_coach', 'coder', 'analyst', 'researcher', 'general_assistant',
-        'news_reporter', 'customer_support', 'marketing_strategist',
-        'creative_content', 'financial_analyst', 'FINISH'
+        'personal_assistant', 'FINISH'
     ] = Field(..., description="Target agent or FINISH")
 
 # Helper function to convert messages to BaseMessage objects
@@ -115,10 +83,10 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
     messages = state["messages"]
     if not messages:
         return {
-            "next": "general_assistant",
+            "next": "personal_assistant",
             "error_count": 0,
             "messages": messages,
-            "reasoning": "No messages provided, defaulting to general_assistant"
+            "reasoning": "No messages provided, routing to personal_assistant"
         }
     last_message = messages[-1]
     if isinstance(last_message, AIMessage) and last_message.additional_kwargs.get("final_answer", False):
@@ -130,19 +98,19 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
         }
 
     system_prompt = (
-        f"You manage these workers: {', '.join(AVAILABLE_AGENTS)}. "
-        "Analyze the query and route to ONE specialized agent or FINISH if the task is fully resolved.\n"
+        f"You manage this worker: {', '.join(AVAILABLE_AGENTS)}. "
+        "Analyze the query and route to the personal_assistant or FINISH if the task is fully resolved.\n"
         "Rules:\n"
-        "1. Route complex queries through multiple agents sequentially if needed.\n"
-        "2. Use FINISH only when an agent has provided a complete response (marked as final_answer).\n"
-        "3. For greetings, identity questions (e.g., 'who are you'), or vague/general queries, route to general_assistant.\n"
-        "4. On errors or uncertainty, route to general_assistant.\n"
+        "1. Route queries to the personal_assistant.\n"
+        "2. Use FINISH only when the personal_assistant has provided a complete response (marked as final_answer).\n"
+        "3. For any queries, including greetings or identity questions, route to personal_assistant.\n"
+        "4. On errors or uncertainty, route to personal_assistant.\n"
         "Provide step-by-step reasoning and your decision."
     )
     structured_llm = get_llm().with_structured_output(RouteDecision)
     try:
         decision = structured_llm.invoke([SystemMessage(content=system_prompt)] + messages)
-        next_destination = decision.destination if decision.destination in AVAILABLE_AGENTS + ["FINISH"] else "general_assistant"
+        next_destination = decision.destination if decision.destination in AVAILABLE_AGENTS + ["FINISH"] else "personal_assistant"
         return {
             "next": next_destination,
             "reasoning": decision.reasoning,
@@ -152,10 +120,10 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
     except Exception as e:
         logger.error(f"Routing failed: {str(e)}")
         return {
-            "next": "general_assistant",
+            "next": "personal_assistant",
             "error_count": state.get("error_count", 0) + 1,
             "messages": messages + [SystemMessage(content=f"Routing error: {str(e)}")],
-            "reasoning": "Fallback to general_assistant due to routing failure"
+            "reasoning": "Fallback to personal_assistant due to routing failure"
         }
 
 # Create the supervisor workflow
