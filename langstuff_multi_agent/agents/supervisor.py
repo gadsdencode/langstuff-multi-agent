@@ -4,6 +4,7 @@ Supervisor module for managing a hierarchical multi-agent system.
 
 import logging
 from typing import List, Literal, Dict, Any, TypedDict, Annotated
+from typing import List, Literal, Dict, Any, TypedDict, Annotated
 from pydantic.v1 import BaseModel, Field
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
@@ -122,8 +123,12 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
     system_prompt = (
         f"You manage these workers: {', '.join(AVAILABLE_AGENTS)}. "
         "Analyze the query and route to ONE specialized agent or FINISH if the task is fully resolved.\n"
+        "Analyze the query and route to ONE specialized agent or FINISH if the task is fully resolved.\n"
         "Rules:\n"
         "1. Route complex queries through multiple agents sequentially if needed.\n"
+        "2. Use FINISH only when an agent has provided a complete response (marked as final_answer).\n"
+        "3. For greetings, identity questions (e.g., 'who are you'), or vague/general queries, route to general_assistant.\n"
+        "4. On errors or uncertainty, route to general_assistant.\n"
         "2. Use FINISH only when an agent has provided a complete response (marked as final_answer).\n"
         "3. For greetings, identity questions (e.g., 'who are you'), or vague/general queries, route to general_assistant.\n"
         "4. On errors or uncertainty, route to general_assistant.\n"
@@ -173,6 +178,8 @@ def create_supervisor(llm) -> StateGraph:
         lambda state: state["next"],
         {name: name for name in AVAILABLE_AGENTS} | {"FINISH": END}
     )
+    workflow.add_edge("preprocess", "supervisor")
+    workflow.set_entry_point("preprocess")
     workflow.add_edge("preprocess", "supervisor")
     workflow.set_entry_point("preprocess")
     return workflow
