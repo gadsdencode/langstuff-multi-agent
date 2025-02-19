@@ -40,34 +40,55 @@ def assist(state: MessagesState, config: dict) -> dict:
     response = llm_with_tools.invoke([system_prompt] + messages)
     logger.info(f"LLM response: type={type(response)}, value={response}")
     
+    # Convert raw tool calls to proper objects (from LangChain v0.1 docs)
     if isinstance(response, dict):
-        content = response.get("content", "I'm your General Assistant—how can I help?")
         raw_tool_calls = response.get("tool_calls", [])
-        tool_calls = [ToolCall(**tc) for tc in raw_tool_calls]
-        response = AIMessage(content=content, tool_calls=tool_calls)
+        tool_calls = [
+            ToolCall(**tc) if isinstance(tc, dict) else tc
+            for tc in raw_tool_calls
+        ]
+        response = AIMessage(
+            content=response.get("content", ""),
+            tool_calls=tool_calls
+        )
     else:
-        if not response.tool_calls:
-            response = AIMessage(
-                content=response.content,
-                additional_kwargs={**response.additional_kwargs, "final_answer": True}
-            )
+        # Ensure existing tool calls are proper objects
+        response.tool_calls = [
+            ToolCall(**tc) if isinstance(tc, dict) else tc
+            for tc in getattr(response, 'tool_calls', [])
+        ]
 
     logger.info(f"Returning response: {response}")
     return {"messages": [response]}
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
+    """Processes tool outputs and formats final response."""
+    logger.info(f"Process tool results config: type={type(config)}, value={config}")
     last_message = state["messages"][-1]
-    if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
+    
+    # Convert to ToolCall objects if needed (from LangChain docs)
+    tool_calls = getattr(last_message, 'tool_calls', [])
+    if not tool_calls:
         return state
-
+    
+    logger.info(f"Processing tool calls: {tool_calls}")
     tool_messages = []
-    for tc in last_message.tool_calls:
-        tool = next(t for t in [search_web, get_current_weather, news_tool] if t.name == tc.name)
-        output = tool.invoke(tc.args)
+    for tc in tool_calls:
+        # Safely handle both dict and ToolCall types
+        tool_name = tc.name if isinstance(tc, ToolCall) else tc.get("name")
+        tool_args = tc.args if isinstance(tc, ToolCall) else tc.get("args")
+        tool_id = tc.id if isinstance(tc, ToolCall) else tc.get("id")
+        
+        # Find matching tool (from search results example)
+        tool = next(
+            t for t in [search_web, get_current_weather, news_tool]
+            if t.name == tool_name
+        )
+        output = tool.invoke(tool_args)
         tool_messages.append(ToolMessage(
-            content=output,
-            tool_call_id=tc.id,
-            name=tc.name
+            content=str(output),
+            tool_call_id=tool_id,
+            name=tool_name
         ))
 
     llm = get_llm(config.get("configurable", {}))
