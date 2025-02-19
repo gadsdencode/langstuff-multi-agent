@@ -7,7 +7,7 @@ This module provides a workflow for addressing general user requests using a var
 from langgraph.graph import StateGraph, MessagesState, END
 from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, get_current_weather, news_tool
 from langstuff_multi_agent.config import get_llm
-from langchain_core.messages import AIMessage, SystemMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, BaseMessage, ToolMessage, ToolCall
 import logging
 
 logger = logging.getLogger(__name__)
@@ -41,12 +41,16 @@ def assist(state: MessagesState, config: dict) -> dict:
     logger.info(f"LLM response: type={type(response)}, value={response}")
     
     if isinstance(response, dict):
-        content = response.get("content", "I’m your General Assistant—how can I help?")
-        tool_calls = response.get("tool_calls",[])
+        content = response.get("content", "I'm your General Assistant—how can I help?")
+        raw_tool_calls = response.get("tool_calls", [])
+        tool_calls = [ToolCall(**tc) for tc in raw_tool_calls]
         response = AIMessage(content=content, tool_calls=tool_calls)
     else:
         if not response.tool_calls:
-            response.additional_kwargs["final_answer"] = True
+            response = AIMessage(
+                content=response.content,
+                additional_kwargs={**response.additional_kwargs, "final_answer": True}
+            )
     
     logger.info(f"Returning response: {response}")
     return {"messages": [response]}
@@ -74,8 +78,14 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     logger.info(f"Final response: type={type(final_response)}, value={final_response}")
     
     if not isinstance(final_response, AIMessage):
-        content = final_response.get("content", "Task completed") if isinstance(final_response, dict) else str(final_response)
-        final_response = AIMessage(content=content)
+        if isinstance(final_response, dict):
+            content = final_response.get("content", "Task completed")
+            raw_tool_calls = final_response.get("tool_calls", [])
+            tool_calls = [ToolCall(**tc) for tc in raw_tool_calls]
+            final_response = AIMessage(content=content, tool_calls=tool_calls)
+        else:
+            final_response = AIMessage(content=str(final_response))
+    
     final_response.additional_kwargs["final_answer"] = True
     
     return {"messages": state["messages"] + tool_messages + [final_response]}
