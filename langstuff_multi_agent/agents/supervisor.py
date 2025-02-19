@@ -170,8 +170,8 @@ def create_supervisor(llm) -> StateGraph:
                     # Prepare the subgraph state with messages
                     subgraph_state = {"messages": state["messages"]}
                     try:
-                        # Attempt to call the subgraph with config
-                        result = subgraph(subgraph_state, config)
+                        # Attempt to call the subgraph with config as a keyword argument
+                        result = subgraph(subgraph_state, config=config.dict())
                     except TypeError:
                         # Fallback to calling without config if not supported
                         result = subgraph(subgraph_state)

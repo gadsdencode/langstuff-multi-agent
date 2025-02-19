@@ -78,10 +78,14 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     
     return {"messages": state["messages"] + tool_messages + [final_response]}
 
+# Define a wrapper for the tools node to avoid passing config
+def tools_node(state: MessagesState) -> dict:
+    return tool_node(state)
+
 # Define and compile the graph
 general_assistant_graph = StateGraph(MessagesState)
 general_assistant_graph.add_node("assist", assist)
-general_assistant_graph.add_node("tools", tool_node)
+general_assistant_graph.add_node("tools", tools_node)
 general_assistant_graph.add_node("process_results", process_tool_results)
 general_assistant_graph.set_entry_point("assist")
 general_assistant_graph.add_conditional_edges(

@@ -5,15 +5,15 @@ This module provides a workflow for fetching and summarizing news based on user 
 """
 
 import logging
-from langgraph.graph import StateGraph, MessagesState, START, END
+from langgraph.graph import StateGraph, MessagesState, END
 from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, news_tool, calc_tool
 from langstuff_multi_agent.config import ConfigSchema, get_llm
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
-
-def news_report(state, config):
+def news_report(state: MessagesState, config: dict) -> dict:
     """Main node: fetch news based on user query and update the state."""
     messages = state.get("messages", [])
     user_query = next((msg.content for msg in messages if isinstance(msg, HumanMessage)), "")
@@ -35,8 +35,7 @@ def news_report(state, config):
         response.additional_kwargs["final_answer"] = True
     return {"messages": messages + [response]}
 
-
-def process_tool_results(state, config):
+def process_tool_results(state: MessagesState, config: dict) -> dict:
     """Process tool outputs and format final response."""
     last_message = state["messages"][-1]
     if not last_message.tool_calls:
@@ -67,16 +66,20 @@ def process_tool_results(state, config):
     final_response.additional_kwargs["final_answer"] = True
     return {"messages": state["messages"] + tool_messages + [final_response]}
 
+# Define a wrapper for the tools node to avoid passing config
+def tools_node(state: MessagesState) -> dict:
+    return tool_node(state)
 
-news_reporter_graph = StateGraph(MessagesState, ConfigSchema)
+# Define and compile the graph
+news_reporter_graph = StateGraph(MessagesState)
 news_reporter_graph.add_node("news_report", news_report)
-news_reporter_graph.add_node("tools", tool_node)
+news_reporter_graph.add_node("tools", tools_node)  # Use wrapped tools_node
 news_reporter_graph.add_node("process_results", process_tool_results)
 news_reporter_graph.set_entry_point("news_report")
 news_reporter_graph.add_conditional_edges(
     "news_report",
-    lambda state: "tools" if has_tool_calls(state["messages"]) else "END",
-    {"tools": "tools", "END": END}
+    lambda state: "tools" if has_tool_calls(state["messages"]) else END,
+    {"tools": "tools", END: END}
 )
 news_reporter_graph.add_edge("tools", "process_results")
 news_reporter_graph.add_edge("process_results", "news_report")
