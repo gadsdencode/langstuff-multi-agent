@@ -123,12 +123,8 @@ def supervisor_logic(state: SupervisorState, config: RunnableConfig) -> Dict[str
     system_prompt = (
         f"You manage these workers: {', '.join(AVAILABLE_AGENTS)}. "
         "Analyze the query and route to ONE specialized agent or FINISH if the task is fully resolved.\n"
-        "Analyze the query and route to ONE specialized agent or FINISH if the task is fully resolved.\n"
         "Rules:\n"
         "1. Route complex queries through multiple agents sequentially if needed.\n"
-        "2. Use FINISH only when an agent has provided a complete response (marked as final_answer).\n"
-        "3. For greetings, identity questions (e.g., 'who are you'), or vague/general queries, route to general_assistant.\n"
-        "4. On errors or uncertainty, route to general_assistant.\n"
         "2. Use FINISH only when an agent has provided a complete response (marked as final_answer).\n"
         "3. For greetings, identity questions (e.g., 'who are you'), or vague/general queries, route to general_assistant.\n"
         "4. On errors or uncertainty, route to general_assistant.\n"
@@ -161,6 +157,9 @@ def create_supervisor(llm) -> StateGraph:
     workflow = StateGraph(SupervisorState)
     workflow.add_node("preprocess", preprocess_input)
     workflow.add_node("supervisor", supervisor_logic)
+
+    # Track successfully added agents
+    added_agents = []
     for name in AVAILABLE_AGENTS:
         try:
             subgraph = member_graphs[name]
@@ -171,15 +170,17 @@ def create_supervisor(llm) -> StateGraph:
                 output=lambda subgraph_state: {"messages": subgraph_state["messages"]}
             )
             workflow.add_edge(name, "supervisor")
+            added_agents.append(name)
+            logger.info(f"Successfully added node: {name}")
         except Exception as e:
-            logger.error(f"Failed to add node {name}: {str(e)}")
+            logger.error(f"Failed to add node {name}: {str(e)}", exc_info=True)
+
+    # Only include successfully added agents in conditional edges
     workflow.add_conditional_edges(
         "supervisor",
         lambda state: state["next"],
-        {name: name for name in AVAILABLE_AGENTS} | {"FINISH": END}
+        {name: name for name in added_agents} | {"FINISH": END}
     )
-    workflow.add_edge("preprocess", "supervisor")
-    workflow.set_entry_point("preprocess")
     workflow.add_edge("preprocess", "supervisor")
     workflow.set_entry_point("preprocess")
     return workflow
