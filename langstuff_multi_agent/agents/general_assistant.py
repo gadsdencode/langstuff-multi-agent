@@ -15,6 +15,7 @@ logger.setLevel(logging.INFO)
 
 def assist(state: MessagesState, config: dict) -> dict:
     """Provide general assistance with configuration support."""
+    logger.info(f"Assist config received: type={type(config)}, value={config}")
     llm = get_llm(config.get("configurable", {}))
     tools = [search_web, get_current_weather, news_tool]
     llm_with_tools = llm.bind_tools(tools)
@@ -37,21 +38,22 @@ def assist(state: MessagesState, config: dict) -> dict:
     
     # Invoke LLM and ensure response is an AIMessage
     response = llm_with_tools.invoke([system_prompt] + messages)
-    logger.info(f"LLM response: {type(response)} - {response}")
+    logger.info(f"LLM response: type={type(response)}, value={response}")
     
-    if not isinstance(response, AIMessage):
-        content = response.get("content", "I’m your General Assistant—how can I help?") if isinstance(response, dict) else str(response)
-        response = AIMessage(content=content)
-    
-    # Set final_answer if no tool calls
-    if not hasattr(response, "tool_calls") or not response.tool_calls:
-        response.additional_kwargs["final_answer"] = True
+    if isinstance(response, dict):
+        content = response.get("content", "I’m your General Assistant—how can I help?")
+        tool_calls = response.get("tool_calls",[])
+        response = AIMessage(content=content, tool_calls=tool_calls)
+    else:
+        if not response.tool_calls:
+            response.additional_kwargs["final_answer"] = True
     
     logger.info(f"Returning response: {response}")
     return {"messages": [response]}
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
     """Processes tool outputs and formats final response."""
+    logger.info(f"Process tool results config: type={type(config)}, value={config}")
     last_message = state["messages"][-1]
     if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
         return state
@@ -69,7 +71,7 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
-    logger.info(f"Final response: {type(final_response)} - {final_response}")
+    logger.info(f"Final response: type={type(final_response)}, value={final_response}")
     
     if not isinstance(final_response, AIMessage):
         content = final_response.get("content", "Task completed") if isinstance(final_response, dict) else str(final_response)
@@ -79,13 +81,13 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     return {"messages": state["messages"] + tool_messages + [final_response]}
 
 # Define a wrapper for the tools node to avoid passing config
-def tools_node(state: MessagesState) -> dict:
+def tools_node(state: MessagesState, config: dict) -> dict:
     return tool_node(state)
 
 # Define and compile the graph
 general_assistant_graph = StateGraph(MessagesState)
 general_assistant_graph.add_node("assist", assist)
-general_assistant_graph.add_node("tools", tools_node)
+general_assistant_graph.add_node("tools", lambda state, config: tools_node(state, config))
 general_assistant_graph.add_node("process_results", process_tool_results)
 general_assistant_graph.set_entry_point("assist")
 general_assistant_graph.add_conditional_edges(
