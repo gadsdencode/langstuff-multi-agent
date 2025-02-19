@@ -4,7 +4,6 @@ Supervisor module for managing a hierarchical multi-agent system.
 
 import logging
 from typing import List, Literal, Dict, Any, TypedDict, Annotated
-from typing import List, Literal, Dict, Any, TypedDict, Annotated
 from pydantic.v1 import BaseModel, Field
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
@@ -160,11 +159,24 @@ def create_supervisor(llm) -> StateGraph:
 
     # Track successfully added agents
     added_agents = []
+
     for name in AVAILABLE_AGENTS:
         try:
             subgraph = member_graphs[name]
-            workflow.add_node(name, subgraph)  # Add subgraph without 'input' or 'output'
-            workflow.add_edge(name, "supervisor")  # Return to supervisor after subgraph execution
+
+            # Define a wrapper function for the subgraph node
+            def subgraph_node(state):
+                # Extract messages from supervisor state
+                subgraph_state = {"messages": state["messages"]}
+                # Run the subgraph
+                result = subgraph.run(subgraph_state)
+                # Update the supervisor's messages
+                state["messages"] = result["messages"]
+                return state
+
+            # Add the wrapper function as the node
+            workflow.add_node(name, subgraph_node)
+            workflow.add_edge(name, "supervisor")
             added_agents.append(name)
             logger.info(f"Successfully added node: {name}")
         except Exception as e:
