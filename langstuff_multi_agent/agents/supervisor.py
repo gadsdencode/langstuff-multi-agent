@@ -144,7 +144,9 @@ def create_supervisor(llm) -> StateGraph:
                     state["messages"] = convert_messages(state["messages"])
                     subgraph_state = {"messages": state["messages"]}
                     try:
-                        result = subgraph(subgraph_state, config=config.dict())
+                        # Convert config to dict
+                        config_dict = config.dict()
+                        result = subgraph(subgraph_state, config_dict)
                     except TypeError:
                         result = subgraph(subgraph_state)
                     state["messages"] = convert_messages(result["messages"])
