@@ -242,7 +242,12 @@ def save_memory(input: SaveMemoryInput, config: RunnableConfig) -> str:
     if memory_manager is None:
         from langstuff_multi_agent.utils.memory import MemoryManager
         memory_manager = MemoryManager()
-    user_id = config.get("configurable", {}).get("user_id", "global")
+    # Convert config to dict safely and extract user_id
+    config_dict = dict(config) if hasattr(config, 'dict') else {}
+    configurable = config_dict.get("configurable", {})
+    if not isinstance(configurable, dict):
+        configurable = {}
+    user_id = configurable.get("user_id", "global")
     memory_manager.save_memory(user_id, input.memories)
     return "Memories saved successfully"
 
@@ -256,7 +261,12 @@ def search_memories(input: SearchMemoriesInput, config: RunnableConfig) -> List[
     if memory_manager is None:
         from langstuff_multi_agent.utils.memory import MemoryManager
         memory_manager = MemoryManager()
-    user_id = config.get("configurable", {}).get("user_id", "global")
+    # Convert config to dict safely and extract user_id
+    config_dict = dict(config) if hasattr(config, 'dict') else {}
+    configurable = config_dict.get("configurable", {})
+    if not isinstance(configurable, dict):
+        configurable = {}
+    user_id = configurable.get("user_id", "global")
     results = memory_manager.search_memories(user_id, input.query)
     return [f"{r['subject']} {r['predicate']} {r['object_']}" for r in results]
 

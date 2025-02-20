@@ -144,8 +144,11 @@ def create_supervisor(llm) -> StateGraph:
                     state["messages"] = convert_messages(state["messages"])
                     subgraph_state = {"messages": state["messages"]}
                     try:
-                        # Handle both compiled graphs and raw StateGraph objects
-                        config_dict = config.dict() if hasattr(config, 'dict') else config
+                        # Convert config to dict safely
+                        config_dict = dict(config) if hasattr(config, 'dict') else {"configurable": {}}
+                        # Ensure configurable is a dict
+                        if "configurable" not in config_dict:
+                            config_dict["configurable"] = {}
                         result = subgraph.invoke(subgraph_state, config_dict)
                     except Exception as e:
                         logger.error(f"Subgraph execution failed: {str(e)}")
