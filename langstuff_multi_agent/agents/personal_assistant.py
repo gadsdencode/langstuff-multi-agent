@@ -6,10 +6,10 @@ This module provides a workflow for assisting with scheduling, reminders, and ge
 
 import logging
 from langgraph.graph import StateGraph, MessagesState, END
-from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, search_web, get_current_weather, calendar_tool
+from langstuff_multi_agent.utils.tools import tool_node, has_tool_calls, SearchWebInput, GetWeatherInput, CalendarInput, search_web, get_current_weather, calendar_tool
 from langstuff_multi_agent.config import get_llm
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage, HumanMessage, ToolCall
-from langchain_core.pydantic_v1 import BaseModel
+from langchain_core.pydantic_v1 import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -76,7 +76,6 @@ def assist(state: MessagesState, config: dict) -> dict:
     return {"messages": [response]}
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
-    """Processes tool outputs and formats final response."""
     state["messages"] = convert_messages(state["messages"])
     last_message = state["messages"][-1]
     
@@ -84,17 +83,19 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     if not tool_calls:
         return state
     
-    # Define a tool mapping to ensure correct tool instances are used
-    tool_map = {
-        "search_web": search_web,
-        "get_current_weather": get_current_weather,
-        "calendar_tool": calendar_tool
-    }
-    
     tool_messages = []
     for tc in tool_calls:
         tool_name = tc.name
-        if tool_name not in tool_map:
+        if tool_name == "search_web":
+            input_model = SearchWebInput
+            tool_func = search_web
+        elif tool_name == "get_current_weather":
+            input_model = GetWeatherInput
+            tool_func = get_current_weather
+        elif tool_name == "calendar_tool":
+            input_model = CalendarInput
+            tool_func = calendar_tool
+        else:
             logger.error(f"Unknown tool: {tool_name}")
             tool_messages.append(ToolMessage(
                 content=f"Error: Tool '{tool_name}' not found",
@@ -102,22 +103,28 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
                 name=tool_name
             ))
             continue
-        
-        tool = tool_map[tool_name]
+
         try:
-            # Ensure tc.args is a dictionary and invoke the tool
-            if not isinstance(tc.args, dict):
-                raise ValueError(f"Tool call args must be a dict, got {type(tc.args)}")
-            output = tool.invoke(tc.args)
+            # Parse tc.args into the input model
+            input_obj = input_model(**tc.args)
+            # Call the tool function with the input model
+            output = tool_func(input=input_obj)
             tool_messages.append(ToolMessage(
                 content=str(output),
                 tool_call_id=tc.id,
                 name=tool_name
             ))
-        except Exception as e:
-            logger.error(f"Tool invocation failed for {tool_name}: {str(e)}")
+        except ValidationError as e:
+            logger.error(f"Validation error for tool {tool_name}: {e}")
             tool_messages.append(ToolMessage(
-                content=f"Error executing tool '{tool_name}': {str(e)}",
+                content=f"Error: Invalid arguments for tool '{tool_name}': {str(e)}",
+                tool_call_id=tc.id,
+                name=tool_name
+            ))
+        except Exception as e:
+            logger.error(f"Error invoking tool {tool_name}: {e}")
+            tool_messages.append(ToolMessage(
+                content=f"Error: {str(e)}",
                 tool_call_id=tc.id,
                 name=tool_name
             ))
