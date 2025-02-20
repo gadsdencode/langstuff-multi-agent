@@ -24,7 +24,7 @@ class MemoryTriple(TypedDict):
 class SupervisorState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add, add_messages]
     next: str
-    error_count: Annotated[int, operator.add]  # Updated to match supervisor.py
+    error_count: Annotated[int, operator.add]
     reasoning: Optional[str]
     memory_triples: List[MemoryTriple]
 
@@ -67,6 +67,9 @@ class MemoryManager:
     def save_state(self, user_id: str, state: SupervisorState) -> None:
         """Save full SupervisorState to disk."""
         state_path = os.path.join(self.state_dir, f"{user_id}.json")
+        # Serialize memory_triples to a JSON string if present
+        if "memory_triples" in state:
+            state["memory_triples"] = json.dumps(state["memory_triples"])
         serializable_state = {
             "messages": [msg.to_json() for msg in state["messages"]],
             "next": state["next"],
@@ -101,12 +104,14 @@ class MemoryManager:
                         ))
                     else:
                         messages.append(BaseMessage(type=role, content=content))
+                # Deserialize memory_triples from JSON string back to list of dictionaries
+                memory_triples = json.loads(serializable_state["memory_triples"]) if serializable_state["memory_triples"] else []
                 state = {
                     "messages": messages,
                     "next": serializable_state["next"],
                     "error_count": serializable_state["error_count"],
                     "reasoning": serializable_state["reasoning"],
-                    "memory_triples": serializable_state["memory_triples"]
+                    "memory_triples": memory_triples
                 }
                 return state
         return None
