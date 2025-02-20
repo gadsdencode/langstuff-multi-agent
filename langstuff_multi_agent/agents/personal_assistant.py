@@ -18,11 +18,12 @@ logger.setLevel(logging.INFO)
 # Helper function to convert messages to BaseMessage objects
 def convert_message(msg):
     if isinstance(msg, dict):
-        msg_type = msg.get("type", msg.get("role"))  # Support both "type" and "role"
+        msg_type = msg.get("type", msg.get("role"))
         if msg_type == "human":
             return HumanMessage(content=msg.get("content", ""))
         elif msg_type == "assistant" or msg_type == "ai":
-            return AIMessage(content=msg.get("content", ""), tool_calls=msg.get("tool_calls", []))
+            # Force tool_calls to empty list to avoid dictionaries
+            return AIMessage(content=msg.get("content", ""), tool_calls=[])
         elif msg_type == "system":
             return SystemMessage(content=msg.get("content", ""))
         elif msg_type == "tool":
@@ -111,9 +112,7 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
             continue
 
         try:
-            # Parse tc.args into the input model
             input_obj = input_model(**tc.args)
-            # Call the tool function with the input model
             output = tool_func(input=input_obj)
             tool_messages.append(ToolMessage(
                 content=str(output),
@@ -137,14 +136,13 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
 
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
-
     if isinstance(final_response, dict):
         content = final_response.get("content", "Task completed")
-        raw_tool_calls = final_response.get("tool_calls", [])  # List of dicts
-        tool_calls = [ToolCall(**tc) for tc in raw_tool_calls]
-        final_response = AIMessage(content=content, tool_calls=tool_calls)
+        final_response = AIMessage(content=content, tool_calls=[])
     elif not isinstance(final_response, AIMessage):
-        final_response = AIMessage(content=str(final_response))
+        final_response = AIMessage(content=str(final_response), tool_calls=[])
+    else:
+        final_response.tool_calls = []
 
     final_response.additional_kwargs["final_answer"] = True
     return {"messages": state["messages"] + tool_messages + [final_response]}
