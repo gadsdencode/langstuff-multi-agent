@@ -155,10 +155,10 @@ def create_supervisor(llm) -> StateGraph:
             subgraph = member_graphs[name]
             def make_subgraph_node(subgraph):
                 def subgraph_node(state: SupervisorState, config: RunnableConfig) -> SupervisorState:
-                    # Convert messages to proper format
-                    messages = convert_messages(state.get("messages", []))
+                    # Convert messages to proper format and freeze state
+                    messages = tuple(convert_messages(state.get("messages", [])))
                     
-                    # Create a clean state dict with converted messages
+                    # Create an immutable state representation
                     clean_state = {
                         "messages": messages,
                         "error_count": state.get("error_count", 0),
@@ -166,34 +166,38 @@ def create_supervisor(llm) -> StateGraph:
                         "reasoning": state.get("reasoning")
                     }
                     
-                    # Create a clean subgraph state
-                    subgraph_state = {"messages": messages}
+                    # Create a clean subgraph state with immutable messages
+                    subgraph_state = {"messages": list(messages)}  # Convert back to list for subgraph
                     
                     try:
-                        # Convert config to dict safely
-                        config_dict = {"configurable": {}}
+                        # Convert config to immutable form
                         if hasattr(config, "dict"):
                             try:
-                                config_dict = config.dict()
+                                config_dict = dict(config.dict())
                             except Exception:
-                                config_dict = dict(config)
+                                config_dict = {"configurable": {}}
+                        else:
+                            config_dict = {"configurable": {}}
                         
-                        # Ensure configurable exists
-                        if "configurable" not in config_dict:
+                        # Ensure configurable is immutable
+                        if "configurable" in config_dict:
+                            config_dict["configurable"] = dict(config_dict["configurable"])
+                        else:
                             config_dict["configurable"] = {}
                         
                         # Invoke subgraph with clean state
                         result = subgraph.invoke(subgraph_state, config_dict)
                         
-                        # Update state with converted messages
-                        clean_state["messages"] = convert_messages(result.get("messages", []))
+                        # Convert result messages to immutable form
+                        result_messages = tuple(convert_messages(result.get("messages", [])))
+                        clean_state["messages"] = result_messages
+                        
                         return clean_state
                         
                     except Exception as e:
                         logger.error(f"Subgraph execution failed: {str(e)}")
-                        clean_state["messages"].append(
-                            SystemMessage(content=f"Agent error: {str(e)}")
-                        )
+                        error_msg = SystemMessage(content=f"Agent error: {str(e)}")
+                        clean_state["messages"] = tuple(list(messages) + [error_msg])
                         return clean_state
                 return subgraph_node
 

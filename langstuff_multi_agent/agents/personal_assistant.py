@@ -56,26 +56,27 @@ system_prompt = SystemMessage(content=(
 
 def assist(state: MessagesState, config: dict) -> dict:
     """Process user input and provide assistance."""
-    # Convert messages to proper format
-    messages = convert_messages(state.get("messages", []))
+    # Convert messages to proper format and freeze
+    messages = tuple(convert_messages(state.get("messages", [])))
     logger.info(f"Assist input state: {state}")
 
-    llm = get_llm(config.get("configurable", {}))
-    tools = [search_web, get_current_weather, calendar_tool]
-    llm_with_tools = llm.bind_tools(tools)
-
     try:
-        response = llm_with_tools.invoke(messages + [system_prompt])
+        llm = get_llm(config.get("configurable", {}))
+        tools = tuple([search_web, get_current_weather, calendar_tool])
+        llm_with_tools = llm.bind_tools(tools)
+
+        response = llm_with_tools.invoke(list(messages) + [system_prompt])
         
         # Ensure response is properly formatted
         if isinstance(response, dict):
             content = response.get("content", "")
-            response = AIMessage(content=content, tool_calls=[])
+            response = AIMessage(content=content, tool_calls=[], additional_kwargs={})
         elif not isinstance(response, AIMessage):
-            response = AIMessage(content=str(response), tool_calls=[])
+            response = AIMessage(content=str(response), tool_calls=[], additional_kwargs={})
         
-        # Ensure tool_calls is always a list
-        response.tool_calls = response.tool_calls or []
+        # Ensure tool_calls is always a list and additional_kwargs is a new dict
+        response.tool_calls = list(response.tool_calls or [])
+        response.additional_kwargs = dict(response.additional_kwargs or {})
         
         # Mark as final answer if no tool calls
         if not response.tool_calls:
@@ -99,16 +100,16 @@ def assist(state: MessagesState, config: dict) -> dict:
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
     """Process the results of tool calls."""
-    # Convert messages to proper format
-    messages = convert_messages(state.get("messages", []))
+    # Convert messages to proper format and freeze
+    messages = tuple(convert_messages(state.get("messages", [])))
     if not messages:
         return {"messages": []}
     
     last_message = messages[-1]
-    tool_calls = last_message.tool_calls if isinstance(last_message, AIMessage) else []
+    tool_calls = tuple(last_message.tool_calls) if isinstance(last_message, AIMessage) else ()
     
     if not tool_calls:
-        return {"messages": messages}
+        return {"messages": list(messages)}
 
     tool_messages = []
     for tc in tool_calls:
@@ -130,18 +131,22 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
                     ToolMessage(
                         content=error_msg,
                         tool_call_id=tc.id,
-                        name=tool_name
+                        name=tool_name,
+                        additional_kwargs={}
                     )
                 )
                 continue
 
-            input_obj = input_model(**tc.args)
+            # Convert args to immutable form
+            args = dict(tc.args)
+            input_obj = input_model(**args)
             output = tool_func(input=input_obj)
             tool_messages.append(
                 ToolMessage(
                     content=str(output),
                     tool_call_id=tc.id,
-                    name=tool_name
+                    name=tool_name,
+                    additional_kwargs={}
                 )
             )
         except Exception as e:
@@ -151,31 +156,40 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
                 ToolMessage(
                     content=error_msg,
                     tool_call_id=tc.id,
-                    name=tc.name
+                    name=tc.name,
+                    additional_kwargs={}
                 )
             )
 
     try:
         llm = get_llm(config.get("configurable", {}))
-        final_response = llm.invoke(messages + tool_messages)
+        final_response = llm.invoke(list(messages) + tool_messages)
         
-        # Ensure response is properly formatted
+        # Ensure response is properly formatted with immutable components
         if isinstance(final_response, dict):
             content = final_response.get("content", "Task completed")
-            final_response = AIMessage(content=content, tool_calls=[])
+            final_response = AIMessage(
+                content=content,
+                tool_calls=[],
+                additional_kwargs={"final_answer": True}
+            )
         elif not isinstance(final_response, AIMessage):
-            final_response = AIMessage(content=str(final_response), tool_calls=[])
+            final_response = AIMessage(
+                content=str(final_response),
+                tool_calls=[],
+                additional_kwargs={"final_answer": True}
+            )
+        else:
+            final_response.tool_calls = []
+            final_response.additional_kwargs = {"final_answer": True}
         
-        # Mark as final answer
-        final_response.additional_kwargs["final_answer"] = True
-        
-        return {"messages": messages + tool_messages + [final_response]}
+        return {"messages": list(messages) + tool_messages + [final_response]}
         
     except Exception as e:
         error_msg = f"Error processing tool results: {str(e)}"
         logger.error(error_msg)
         return {
-            "messages": messages + tool_messages + [
+            "messages": list(messages) + tool_messages + [
                 SystemMessage(
                     content=error_msg,
                     additional_kwargs={"final_answer": True}
@@ -185,8 +199,9 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
 
 
 def tools_node(state: MessagesState) -> dict:
-    state["messages"] = convert_messages(state["messages"])
-    return tool_node(state)
+    """Process tool calls in state."""
+    messages = tuple(convert_messages(state.get("messages", [])))
+    return tool_node({"messages": list(messages)})
 
 
 personal_assistant_graph = StateGraph(MessagesState)
