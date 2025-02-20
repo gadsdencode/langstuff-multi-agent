@@ -55,97 +55,133 @@ system_prompt = SystemMessage(content=(
 
 
 def assist(state: MessagesState, config: dict) -> dict:
-    state["messages"] = convert_messages(state["messages"])
+    """Process user input and provide assistance."""
+    # Convert messages to proper format
+    messages = convert_messages(state.get("messages", []))
     logger.info(f"Assist input state: {state}")
 
     llm = get_llm(config.get("configurable", {}))
     tools = [search_web, get_current_weather, calendar_tool]
     llm_with_tools = llm.bind_tools(tools)
 
-    messages = state["messages"]
-    response = llm_with_tools.invoke(messages + [system_prompt])
-
-    if isinstance(response, dict):
-        content = response.get("content", "")
-        # For testing, force tool_calls to be an empty list to exclude dictionaries
-        response = AIMessage(content=content, tool_calls=[])
-    elif not isinstance(response, AIMessage):
-        response = AIMessage(content=str(response), tool_calls=[])
-    else:
-        # If response is already an AIMessage, override tool_calls
-        response.tool_calls = []
-
-    if not response.tool_calls:
-        response.additional_kwargs["final_answer"] = True
-
-    logger.info(f"Returning response: {response}")
-    return {"messages": [response]}
+    try:
+        response = llm_with_tools.invoke(messages + [system_prompt])
+        
+        # Ensure response is properly formatted
+        if isinstance(response, dict):
+            content = response.get("content", "")
+            response = AIMessage(content=content, tool_calls=[])
+        elif not isinstance(response, AIMessage):
+            response = AIMessage(content=str(response), tool_calls=[])
+        
+        # Ensure tool_calls is always a list
+        response.tool_calls = response.tool_calls or []
+        
+        # Mark as final answer if no tool calls
+        if not response.tool_calls:
+            response.additional_kwargs["final_answer"] = True
+        
+        logger.info(f"Returning response: {response}")
+        return {"messages": [response]}
+        
+    except Exception as e:
+        error_msg = f"Error in assist: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "messages": [
+                SystemMessage(
+                    content=error_msg,
+                    additional_kwargs={"final_answer": True}
+                )
+            ]
+        }
 
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
-    state["messages"] = convert_messages(state["messages"])
-    last_message = state["messages"][-1]
-
+    """Process the results of tool calls."""
+    # Convert messages to proper format
+    messages = convert_messages(state.get("messages", []))
+    if not messages:
+        return {"messages": []}
+    
+    last_message = messages[-1]
     tool_calls = last_message.tool_calls if isinstance(last_message, AIMessage) else []
+    
     if not tool_calls:
-        return state
+        return {"messages": messages}
 
     tool_messages = []
     for tc in tool_calls:
-        tool_name = tc.name
-        if tool_name == "search_web":
-            input_model = SearchWebInput
-            tool_func = search_web
-        elif tool_name == "get_current_weather":
-            input_model = GetWeatherInput
-            tool_func = get_current_weather
-        elif tool_name == "calendar_tool":
-            input_model = CalendarInput
-            tool_func = calendar_tool
-        else:
-            logger.error(f"Unknown tool: {tool_name}")
-            tool_messages.append(ToolMessage(
-                content=f"Error: Tool '{tool_name}' not found",
-                tool_call_id=tc.id,
-                name=tool_name
-            ))
-            continue
-
         try:
+            tool_name = tc.name
+            if tool_name == "search_web":
+                input_model = SearchWebInput
+                tool_func = search_web
+            elif tool_name == "get_current_weather":
+                input_model = GetWeatherInput
+                tool_func = get_current_weather
+            elif tool_name == "calendar_tool":
+                input_model = CalendarInput
+                tool_func = calendar_tool
+            else:
+                error_msg = f"Unknown tool: {tool_name}"
+                logger.error(error_msg)
+                tool_messages.append(
+                    ToolMessage(
+                        content=error_msg,
+                        tool_call_id=tc.id,
+                        name=tool_name
+                    )
+                )
+                continue
+
             input_obj = input_model(**tc.args)
             output = tool_func(input=input_obj)
-            tool_messages.append(ToolMessage(
-                content=str(output),
-                tool_call_id=tc.id,
-                name=tool_name
-            ))
-        except ValidationError as e:
-            logger.error(f"Validation error for tool {tool_name}: {e}")
-            tool_messages.append(ToolMessage(
-                content=f"Error: Invalid arguments for tool '{tool_name}': {str(e)}",
-                tool_call_id=tc.id,
-                name=tool_name
-            ))
+            tool_messages.append(
+                ToolMessage(
+                    content=str(output),
+                    tool_call_id=tc.id,
+                    name=tool_name
+                )
+            )
         except Exception as e:
-            logger.error(f"Error invoking tool {tool_name}: {e}")
-            tool_messages.append(ToolMessage(
-                content=f"Error: {str(e)}",
-                tool_call_id=tc.id,
-                name=tool_name
-            ))
+            error_msg = f"Error with tool {tc.name}: {str(e)}"
+            logger.error(error_msg)
+            tool_messages.append(
+                ToolMessage(
+                    content=error_msg,
+                    tool_call_id=tc.id,
+                    name=tc.name
+                )
+            )
 
-    llm = get_llm(config.get("configurable", {}))
-    final_response = llm.invoke(state["messages"] + tool_messages)
-    if isinstance(final_response, dict):
-        content = final_response.get("content", "Task completed")
-        final_response = AIMessage(content=content, tool_calls=[])
-    elif not isinstance(final_response, AIMessage):
-        final_response = AIMessage(content=str(final_response), tool_calls=[])
-    else:
-        final_response.tool_calls = []
-
-    final_response.additional_kwargs["final_answer"] = True
-    return {"messages": state["messages"] + tool_messages + [final_response]}
+    try:
+        llm = get_llm(config.get("configurable", {}))
+        final_response = llm.invoke(messages + tool_messages)
+        
+        # Ensure response is properly formatted
+        if isinstance(final_response, dict):
+            content = final_response.get("content", "Task completed")
+            final_response = AIMessage(content=content, tool_calls=[])
+        elif not isinstance(final_response, AIMessage):
+            final_response = AIMessage(content=str(final_response), tool_calls=[])
+        
+        # Mark as final answer
+        final_response.additional_kwargs["final_answer"] = True
+        
+        return {"messages": messages + tool_messages + [final_response]}
+        
+    except Exception as e:
+        error_msg = f"Error processing tool results: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "messages": messages + tool_messages + [
+                SystemMessage(
+                    content=error_msg,
+                    additional_kwargs={"final_answer": True}
+                )
+            ]
+        }
 
 
 def tools_node(state: MessagesState) -> dict:

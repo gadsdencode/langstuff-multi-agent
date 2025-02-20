@@ -45,21 +45,35 @@ class RouteDecision(BaseModel):
 
 # Helper function to convert messages to BaseMessage objects
 def convert_message(msg):
+    """Convert a message dict or object to a proper BaseMessage object."""
+    if isinstance(msg, BaseMessage):
+        return msg
     if isinstance(msg, dict):
         msg_type = msg.get("type")
+        content = msg.get("content", "")
+        kwargs = msg.get("additional_kwargs", {})
         if msg_type == "human":
-            return HumanMessage(content=msg.get("content", ""))
-        elif msg_type == "assistant":
-            return AIMessage(content=msg.get("content", ""), tool_calls=msg.get("tool_calls", []))
+            return HumanMessage(content=content, additional_kwargs=dict(kwargs))
+        elif msg_type == "assistant" or msg_type == "ai":
+            tool_calls = []  # Ensure tool_calls is always a list
+            return AIMessage(content=content, additional_kwargs=dict(kwargs), tool_calls=tool_calls)
         elif msg_type == "system":
-            return SystemMessage(content=msg.get("content", ""))
+            return SystemMessage(content=content, additional_kwargs=dict(kwargs))
         elif msg_type == "tool":
-            return ToolMessage(content=msg.get("content", ""), tool_call_id=msg.get("tool_call_id", ""), name=msg.get("name", ""))
+            return ToolMessage(
+                content=content,
+                tool_call_id=msg.get("tool_call_id", ""),
+                name=msg.get("name", ""),
+                additional_kwargs=dict(kwargs)
+            )
         else:
             raise ValueError(f"Unknown message type: {msg_type}")
     return msg
 
 def convert_messages(messages):
+    """Convert a list of messages to proper BaseMessage objects."""
+    if not messages:
+        return []
     return [convert_message(msg) for msg in messages]
 
 # Preprocess input messages
@@ -141,21 +155,46 @@ def create_supervisor(llm) -> StateGraph:
             subgraph = member_graphs[name]
             def make_subgraph_node(subgraph):
                 def subgraph_node(state: SupervisorState, config: RunnableConfig) -> SupervisorState:
-                    state["messages"] = convert_messages(state["messages"])
-                    subgraph_state = {"messages": state["messages"]}
+                    # Convert messages to proper format
+                    messages = convert_messages(state.get("messages", []))
+                    
+                    # Create a clean state dict with converted messages
+                    clean_state = {
+                        "messages": messages,
+                        "error_count": state.get("error_count", 0),
+                        "next": state.get("next", "supervisor"),
+                        "reasoning": state.get("reasoning")
+                    }
+                    
+                    # Create a clean subgraph state
+                    subgraph_state = {"messages": messages}
+                    
                     try:
                         # Convert config to dict safely
-                        config_dict = dict(config) if hasattr(config, 'dict') else {"configurable": {}}
-                        # Ensure configurable is a dict
+                        config_dict = {"configurable": {}}
+                        if hasattr(config, "dict"):
+                            try:
+                                config_dict = config.dict()
+                            except Exception:
+                                config_dict = dict(config)
+                        
+                        # Ensure configurable exists
                         if "configurable" not in config_dict:
                             config_dict["configurable"] = {}
+                        
+                        # Invoke subgraph with clean state
                         result = subgraph.invoke(subgraph_state, config_dict)
+                        
+                        # Update state with converted messages
+                        clean_state["messages"] = convert_messages(result.get("messages", []))
+                        return clean_state
+                        
                     except Exception as e:
                         logger.error(f"Subgraph execution failed: {str(e)}")
-                        state["messages"].append(SystemMessage(content=f"Agent error: {str(e)}"))
-                        return state
-                    state["messages"] = convert_messages(result["messages"])
-                    return state
+                        clean_state["messages"].append(
+                            SystemMessage(content=f"Agent error: {str(e)}")
+                        )
+                        return clean_state
                 return subgraph_node
 
             specific_subgraph_node = make_subgraph_node(subgraph)
