@@ -14,6 +14,7 @@ from langchain_core.pydantic_v1 import BaseModel, ValidationError
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+
 # Helper function to convert messages to BaseMessage objects
 def convert_message(msg):
     if isinstance(msg, dict):
@@ -34,8 +35,10 @@ def convert_message(msg):
             raise ValueError(f"Unknown message type: {msg_type}")
     return msg
 
+
 def convert_messages(messages):
     return [convert_message(msg) for msg in messages]
+
 
 system_prompt = SystemMessage(content=(
     "You are a Personal Assistant Agent. Your task is to help with a variety of personal tasks and queries, such as scheduling, reminders, and general information.\n\n"
@@ -49,17 +52,18 @@ system_prompt = SystemMessage(content=(
     "3. Provide clear, concise, and helpful responses to assist the user."
 ))
 
+
 def assist(state: MessagesState, config: dict) -> dict:
     state["messages"] = convert_messages(state["messages"])
     logger.info(f"Assist input state: {state}")
-    
+
     llm = get_llm(config.get("configurable", {}))
     tools = [search_web, get_current_weather, calendar_tool]
     llm_with_tools = llm.bind_tools(tools)
-    
+
     messages = state["messages"]
     response = llm_with_tools.invoke(messages + [system_prompt])
-    
+
     if isinstance(response, dict):
         content = response.get("content", "")
         # For testing, force tool_calls to be an empty list to exclude dictionaries
@@ -69,21 +73,22 @@ def assist(state: MessagesState, config: dict) -> dict:
     else:
         # If response is already an AIMessage, override tool_calls
         response.tool_calls = []
-    
+
     if not response.tool_calls:
         response.additional_kwargs["final_answer"] = True
-    
+
     logger.info(f"Returning response: {response}")
     return {"messages": [response]}
+
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
     state["messages"] = convert_messages(state["messages"])
     last_message = state["messages"][-1]
-    
+
     tool_calls = last_message.tool_calls if isinstance(last_message, AIMessage) else []
     if not tool_calls:
         return state
-    
+
     tool_messages = []
     for tc in tool_calls:
         tool_name = tc.name
@@ -132,7 +137,7 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
 
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
-    
+
     if isinstance(final_response, dict):
         content = final_response.get("content", "Task completed")
         raw_tool_calls = final_response.get("tool_calls", [])  # List of dicts
@@ -140,13 +145,15 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
         final_response = AIMessage(content=content, tool_calls=tool_calls)
     elif not isinstance(final_response, AIMessage):
         final_response = AIMessage(content=str(final_response))
-    
+
     final_response.additional_kwargs["final_answer"] = True
     return {"messages": state["messages"] + tool_messages + [final_response]}
+
 
 def tools_node(state: MessagesState) -> dict:
     state["messages"] = convert_messages(state["messages"])
     return tool_node(state)
+
 
 personal_assistant_graph = StateGraph(MessagesState)
 personal_assistant_graph.add_node("assist", assist)
