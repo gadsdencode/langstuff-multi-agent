@@ -9,93 +9,15 @@
     "agents": [
         {
             "name": "SUPERVISOR",
-            "file": "langstuff_multi_agent/agent.py",
+            "file": "langstuff_multi_agent/agents/supervisor.py",
             "graph": "main",
             "description": "Main supervisor agent that routes requests to specialized agents."
         },
         {
-            "name": "DEBUGGER",
-            "file": "langstuff_multi_agent/agents/debugger.py",
+            "name": "PERSONAL_ASSISTANT",
+            "file": "langstuff_multi_agent/agents/personal_assistant.py",
             "graph": "main",
-            "description": "Agent responsible for debugging code, managed by the supervisor."
-        },
-        {
-            "name": "CONTEXT_MANAGER",
-            "file": "langstuff_multi_agent/agents/context_manager.py",
-            "graph": "main",
-            "description": "Agent responsible for managing conversation context, managed by the supervisor."
-        },
-        {
-            "name": "PROJECT_MANAGER",
-            "file": "langstuff_multi_agent/agents/project_manager.py",
-            "graph": "main",
-            "description": "Agent responsible for managing project timelines and tasks, managed by the supervisor."
-        },
-        {
-            "name": "PROFESSIONAL_COACH",
-            "file": "langstuff_multi_agent/agents/professional_coach.py",
-            "graph": "main",
-            "description": "Agent providing professional and career guidance, managed by the supervisor."
-        },
-        {
-            "name": "LIFE_COACH",
-            "file": "langstuff_multi_agent/agents/life_coach.py",
-            "graph": "main",
-            "description": "Agent providing lifestyle and personal advice, managed by the supervisor."
-        },
-        {
-            "name": "CODER",
-            "file": "langstuff_multi_agent/agents/coder.py",
-            "graph": "main",
-            "description": "Agent that assists with coding tasks, managed by the supervisor."
-        },
-        {
-            "name": "ANALYST",
-            "file": "langstuff_multi_agent/agents/analyst.py",
-            "graph": "main",
-            "description": "Agent specializing in data analysis, managed by the supervisor."
-        },
-        {
-            "name": "RESEARCHER",
-            "file": "langstuff_multi_agent/agents/researcher.py",
-            "graph": "main",
-            "description": "Agent that gathers and summarizes research and news, managed by the supervisor."
-        },
-        {
-            "name": "GENERAL_ASSISTANT",
-            "file": "langstuff_multi_agent/agents/general_assistant.py",
-            "graph": "main",
-            "description": "Agent for general queries and assistance, managed by the supervisor."
-        },
-        {
-            "name": "NEWS_REPORTER",
-            "file": "langstuff_multi_agent/agents/news_reporter.py",
-            "graph": "main",
-            "description": "Agent that searches, researches, explains and summarizes news reports, managed by the supervisor."
-        },
-        {
-            "name": "CUSTOMER_SUPPORT",
-            "file": "langstuff_multi_agent/agents/customer_support.py",
-            "graph": "main",
-            "description": "Agent that provides customer support and assistance, managed by the supervisor."
-        },
-        {
-            "name": "MARKETING_STRATEGIST",
-            "file": "langstuff_multi_agent/agents/marketing_strategist.py",
-            "graph": "main",
-            "description": "Agent that provides marketing strategy, insights, trends, and planning, managed by the supervisor."
-        },
-        {
-            "name": "CREATIVE_CONTENT",
-            "file": "langstuff_multi_agent/agents/creative_content.py",
-            "graph": "main",
-            "description": "Agent that provides creative content, marketing copy, social media posts, or brainstorming ideas, managed by the supervisor."
-        },
-        {
-            "name": "FINANCIAL_ANALYST",
-            "file": "langstuff_multi_agent/agents/financial_analyst.py",
-            "graph": "main",
-            "description": "Agent that provides financial analysis, market data, forecasting, and investment insights, managed by the supervisor."
+            "description": "Agent handling personal tasks and queries with tool usage, managed by the supervisor."
         }
     ],
     "dependencies": [

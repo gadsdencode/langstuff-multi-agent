@@ -28,6 +28,7 @@ from langstuff_multi_agent.config import get_llm
 from langgraph.prebuilt import ToolNode
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.messages import AIMessage
+from pydantic import BaseModel
 
 # Initialize SQLite for task tracking
 def init_task_db():
@@ -58,14 +59,18 @@ def has_tool_calls(messages: List[Any]) -> bool:
         return bool(last_message.tool_calls)
     return False
 
-# --- Tools ---
+# --- Tools with Input Schemas ---
+
+class SearchWebInput(BaseModel):
+    query: str
+
 @tool(return_direct=True)
-def search_web(query: str) -> str:
+def search_web(input: SearchWebInput) -> str:
     """Perform a web search using SerpAPI."""
     api_key = os.environ.get("SERPAPI_API_KEY")
     if not api_key:
         return "Error: SERPAPI_API_KEY not set"
-    params = {"engine": "google", "q": query, "api_key": api_key, "num": 5}
+    params = {"engine": "google", "q": input.query, "api_key": api_key, "num": 5}
     try:
         response = requests.get("https://serpapi.com/search", params=params)
         response.raise_for_status()
@@ -76,8 +81,11 @@ def search_web(query: str) -> str:
     except requests.RequestException as e:
         return f"Error performing web search: {str(e)}"
 
+class PythonREPLInput(BaseModel):
+    code: str
+
 @tool
-def python_repl(code: str) -> str:
+def python_repl(input: PythonREPLInput) -> str:
     """Execute Python code in a restricted environment."""
     safe_builtins = {"print": print, "range": range, "len": len, "str": str, "int": int,
                      "float": float, "bool": bool, "list": list, "dict": dict, "set": set,
@@ -86,61 +94,77 @@ def python_repl(code: str) -> str:
     output = io.StringIO()
     try:
         with contextlib.redirect_stdout(output):
-            exec(code, restricted_globals, {})
+            exec(input.code, restricted_globals, {})
         return output.getvalue() or "Code executed successfully"
     except Exception as e:
         return f"Error: {str(e)}"
 
+class ReadFileInput(BaseModel):
+    filepath: str
+
 @tool
-def read_file(filepath: str) -> str:
+def read_file(input: ReadFileInput) -> str:
     """Read content from a file."""
     try:
-        with open(filepath, 'r', encoding="utf-8") as file:
+        with open(input.filepath, 'r', encoding="utf-8") as file:
             return file.read()
     except Exception as e:
-        return f"Error reading file '{filepath}': {str(e)}"
+        return f"Error reading file '{input.filepath}': {str(e)}"
+
+class WriteFileInput(BaseModel):
+    filepath: str
+    content: str
 
 @tool
-def write_file(filepath: str, content: str) -> str:
+def write_file(input: WriteFileInput) -> str:
     """Write content to a file."""
     try:
-        with open(filepath, 'w', encoding="utf-8") as file:
-            file.write(content)
-        return f"Successfully wrote to '{filepath}'"
+        with open(input.filepath, 'w', encoding="utf-8") as file:
+            file.write(input.content)
+        return f"Successfully wrote to '{input.filepath}'"
     except Exception as e:
-        return f"Error writing to file '{filepath}': {str(e)}"
+        return f"Error writing to file '{input.filepath}': {str(e)}"
+
+class CalendarInput(BaseModel):
+    event_details: str
 
 @tool
-def calendar_tool(event_details: str) -> str:
+def calendar_tool(input: CalendarInput) -> str:
     """Add an event to a local calendar file."""
     try:
         with open("calendar.txt", "a", encoding="utf-8") as f:
-            f.write(event_details + "\n")
-        return f"Event added: {event_details}"
+            f.write(input.event_details + "\n")
+        return f"Event added: {input.event_details}"
     except Exception as e:
         return f"Error updating calendar: {str(e)}"
 
+class TaskTrackerInput(BaseModel):
+    task_details: str
+
 @tool
-def task_tracker_tool(task_details: str) -> str:
+def task_tracker_tool(input: TaskTrackerInput) -> str:
     """Add a task to the SQLite task tracker."""
     try:
         conn = sqlite3.connect("tasks.db")
         c = conn.cursor()
-        c.execute("INSERT INTO tasks (task_details) VALUES (?)", (task_details,))
+        c.execute("INSERT INTO tasks (task_details) VALUES (?)", (input.task_details,))
         conn.commit()
         task_id = c.lastrowid
         conn.close()
-        return f"Task {task_id} added: {task_details}"
+        return f"Task {task_id} added: {input.task_details}"
     except Exception as e:
         return f"Error adding task: {str(e)}"
 
+class JobSearchInput(BaseModel):
+    query: str
+
 @tool(return_direct=True)
-def job_search_tool(query: str) -> str:
+def job_search_tool(input: JobSearchInput) -> str:
     """Perform a job search using SerpAPI."""
     api_key = os.environ.get("SERPAPI_API_KEY")
     if not api_key:
         return "Error: SERPAPI_API_KEY not set"
-    params = {"engine": "google_jobs", "q": query, "api_key": api_key}
+    params = {"engine": "google_jobs", "q": input.query, "api_key": api_key}
     try:
         response = requests.get("https://serpapi.com/search", params=params)
         response.raise_for_status()
@@ -151,13 +175,16 @@ def job_search_tool(query: str) -> str:
     except requests.RequestException as e:
         return f"Error performing job search: {str(e)}"
 
+class GetWeatherInput(BaseModel):
+    location: str
+
 @tool(return_direct=True)
-def get_current_weather(location: str) -> str:
+def get_current_weather(input: GetWeatherInput) -> str:
     """Retrieve current weather using OpenWeatherMap."""
     api_key = os.environ.get("OPENWEATHER_API_KEY")
     if not api_key:
         return "Error: OPENWEATHER_API_KEY not set"
-    params = {"q": location, "appid": api_key, "units": "imperial"}
+    params = {"q": input.location, "appid": api_key, "units": "imperial"}
     try:
         response = requests.get("http://api.openweathermap.org/data/2.5/weather", params=params)
         response.raise_for_status()
@@ -165,27 +192,33 @@ def get_current_weather(location: str) -> str:
         temp = data["main"]["temp"]
         wind_speed = data["wind"]["speed"]
         wind_direction = data["wind"].get("deg", "N/A")
-        return f"Current weather in {location}: {temp}°F, wind {wind_speed} mph at {wind_direction}°"
+        return f"Current weather in {input.location}: {temp}°F, wind {wind_speed} mph at {wind_direction}°"
     except requests.RequestException as e:
         return f"Error fetching weather: {str(e)}"
 
+class CalcInput(BaseModel):
+    expression: str
+
 @tool
-def calc_tool(expression: str) -> str:
+def calc_tool(input: CalcInput) -> str:
     """Evaluate a mathematical expression safely."""
     safe_builtins = {"abs": abs, "round": round, "min": min, "max": max, "sum": sum}
     try:
-        result = eval(expression, {"__builtins__": safe_builtins}, {})
+        result = eval(input.expression, {"__builtins__": safe_builtins}, {})
         return str(result)
     except Exception as e:
         return f"Error evaluating expression: {str(e)}"
 
+class NewsInput(BaseModel):
+    topic: str
+
 @tool(return_direct=True)
-def news_tool(topic: str) -> str:
+def news_tool(input: NewsInput) -> str:
     """Retrieve news headlines using NewsAPI."""
     api_key = os.environ.get("NEWSAPI_API_KEY")
     if not api_key:
         return "Error: NEWSAPI_API_KEY not set"
-    params = {"q": topic, "apiKey": api_key, "pageSize": 5, "sortBy": "relevancy"}
+    params = {"q": input.topic, "apiKey": api_key, "pageSize": 5, "sortBy": "relevancy"}
     try:
         response = requests.get("https://newsapi.org/v2/everything", params=params)
         response.raise_for_status()
@@ -199,26 +232,32 @@ def news_tool(topic: str) -> str:
 # Memory tools
 memory_manager = None  # Initialized lazily
 
+class SaveMemoryInput(BaseModel):
+    memories: List[Dict[str, str]]
+
 @tool
-def save_memory(memories: List[Dict[str, str]], config: RunnableConfig) -> str:
+def save_memory(input: SaveMemoryInput, config: RunnableConfig) -> str:
     """Save important facts about users or conversations."""
     global memory_manager
     if memory_manager is None:
         from langstuff_multi_agent.utils.memory import MemoryManager
         memory_manager = MemoryManager()
     user_id = config.get("configurable", {}).get("user_id", "global")
-    memory_manager.save_memory(user_id, memories)
+    memory_manager.save_memory(user_id, input.memories)
     return "Memories saved successfully"
 
+class SearchMemoriesInput(BaseModel):
+    query: str
+
 @tool
-def search_memories(query: str, config: RunnableConfig) -> List[str]:
+def search_memories(input: SearchMemoriesInput, config: RunnableConfig) -> List[str]:
     """Search long-term conversation memories."""
     global memory_manager
     if memory_manager is None:
         from langstuff_multi_agent.utils.memory import MemoryManager
         memory_manager = MemoryManager()
     user_id = config.get("configurable", {}).get("user_id", "global")
-    results = memory_manager.search_memories(user_id, query)
+    results = memory_manager.search_memories(user_id, input.query)
     return [f"{r['subject']} {r['predicate']} {r['object_']}" for r in results]
 
 # Tool collection and node
