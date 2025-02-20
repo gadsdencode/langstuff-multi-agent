@@ -56,33 +56,48 @@ system_prompt = SystemMessage(content=(
 
 def assist(state: MessagesState, config: dict) -> dict:
     """Process user input and provide assistance."""
-    # Convert messages to proper format and freeze
-    messages = tuple(convert_messages(state.get("messages", [])))
-    logger.info(f"Assist input state: {state}")
-
     try:
-        llm = get_llm(config.get("configurable", {}))
+        # Convert state to immutable form
+        messages = tuple(convert_messages(state.get("messages", [])))
+        
+        # Convert config to immutable form
+        config_dict = dict(config) if hasattr(config, "dict") else {}
+        configurable = dict(config_dict.get("configurable", {}))
+        
+        # Get LLM with immutable config
+        llm = get_llm(configurable)
         tools = tuple([search_web, get_current_weather, calendar_tool])
         llm_with_tools = llm.bind_tools(tools)
-
-        response = llm_with_tools.invoke(list(messages) + [system_prompt])
         
-        # Ensure response is properly formatted
+        # Create immutable system prompt
+        system_messages = tuple([system_prompt])
+        
+        # Create clean input state
+        input_messages = tuple(list(messages) + list(system_messages))
+        
+        # Get response
+        response = llm_with_tools.invoke(list(input_messages))
+        
+        # Ensure response is properly formatted with immutable components
         if isinstance(response, dict):
-            content = response.get("content", "")
-            response = AIMessage(content=content, tool_calls=[], additional_kwargs={})
+            content = str(response.get("content", ""))
+            response = AIMessage(
+                content=content,
+                tool_calls=[],
+                additional_kwargs={"final_answer": True}
+            )
         elif not isinstance(response, AIMessage):
-            response = AIMessage(content=str(response), tool_calls=[], additional_kwargs={})
+            response = AIMessage(
+                content=str(response),
+                tool_calls=[],
+                additional_kwargs={"final_answer": True}
+            )
+        else:
+            # Ensure immutable components
+            response.tool_calls = []
+            response.additional_kwargs = {"final_answer": True}
         
-        # Ensure tool_calls is always a list and additional_kwargs is a new dict
-        response.tool_calls = list(response.tool_calls or [])
-        response.additional_kwargs = dict(response.additional_kwargs or {})
-        
-        # Mark as final answer if no tool calls
-        if not response.tool_calls:
-            response.additional_kwargs["final_answer"] = True
-        
-        logger.info(f"Returning response: {response}")
+        # Return immutable result
         return {"messages": [response]}
         
     except Exception as e:
@@ -100,74 +115,89 @@ def assist(state: MessagesState, config: dict) -> dict:
 
 def process_tool_results(state: MessagesState, config: dict) -> dict:
     """Process the results of tool calls."""
-    # Convert messages to proper format and freeze
-    messages = tuple(convert_messages(state.get("messages", [])))
-    if not messages:
-        return {"messages": []}
-    
-    last_message = messages[-1]
-    tool_calls = tuple(last_message.tool_calls) if isinstance(last_message, AIMessage) else ()
-    
-    if not tool_calls:
-        return {"messages": list(messages)}
+    try:
+        # Convert state to immutable form
+        messages = tuple(convert_messages(state.get("messages", [])))
+        if not messages:
+            return {"messages": []}
+        
+        # Get tool calls in immutable form
+        last_message = messages[-1]
+        tool_calls = tuple(getattr(last_message, "tool_calls", []) if isinstance(last_message, AIMessage) else [])
+        
+        if not tool_calls:
+            return {"messages": list(messages)}
 
-    tool_messages = []
-    for tc in tool_calls:
-        try:
-            tool_name = tc.name
-            if tool_name == "search_web":
-                input_model = SearchWebInput
-                tool_func = search_web
-            elif tool_name == "get_current_weather":
-                input_model = GetWeatherInput
-                tool_func = get_current_weather
-            elif tool_name == "calendar_tool":
-                input_model = CalendarInput
-                tool_func = calendar_tool
-            else:
-                error_msg = f"Unknown tool: {tool_name}"
+        # Process tool calls with immutable handling
+        tool_messages = []
+        for tc in tool_calls:
+            try:
+                # Get immutable tool properties
+                tool_name = str(tc.name)
+                tool_id = str(tc.id)
+                tool_args = dict(tc.args)
+                
+                # Get appropriate tool
+                if tool_name == "search_web":
+                    input_model, tool_func = SearchWebInput, search_web
+                elif tool_name == "get_current_weather":
+                    input_model, tool_func = GetWeatherInput, get_current_weather
+                elif tool_name == "calendar_tool":
+                    input_model, tool_func = CalendarInput, calendar_tool
+                else:
+                    error_msg = f"Unknown tool: {tool_name}"
+                    logger.error(error_msg)
+                    tool_messages.append(
+                        ToolMessage(
+                            content=error_msg,
+                            tool_call_id=tool_id,
+                            name=tool_name,
+                            additional_kwargs={"error": True}
+                        )
+                    )
+                    continue
+
+                # Execute tool with immutable args
+                input_obj = input_model(**tool_args)
+                output = tool_func(input=input_obj)
+                
+                # Create immutable tool message
+                tool_messages.append(
+                    ToolMessage(
+                        content=str(output),
+                        tool_call_id=tool_id,
+                        name=tool_name,
+                        additional_kwargs={}
+                    )
+                )
+            except Exception as e:
+                error_msg = f"Error with tool {tc.name}: {str(e)}"
                 logger.error(error_msg)
                 tool_messages.append(
                     ToolMessage(
                         content=error_msg,
                         tool_call_id=tc.id,
-                        name=tool_name,
-                        additional_kwargs={}
+                        name=tc.name,
+                        additional_kwargs={"error": True}
                     )
                 )
-                continue
 
-            # Convert args to immutable form
-            args = dict(tc.args)
-            input_obj = input_model(**args)
-            output = tool_func(input=input_obj)
-            tool_messages.append(
-                ToolMessage(
-                    content=str(output),
-                    tool_call_id=tc.id,
-                    name=tool_name,
-                    additional_kwargs={}
-                )
-            )
-        except Exception as e:
-            error_msg = f"Error with tool {tc.name}: {str(e)}"
-            logger.error(error_msg)
-            tool_messages.append(
-                ToolMessage(
-                    content=error_msg,
-                    tool_call_id=tc.id,
-                    name=tc.name,
-                    additional_kwargs={}
-                )
-            )
-
-    try:
-        llm = get_llm(config.get("configurable", {}))
-        final_response = llm.invoke(list(messages) + tool_messages)
+        # Convert config to immutable form
+        config_dict = dict(config) if hasattr(config, "dict") else {}
+        configurable = dict(config_dict.get("configurable", {}))
+        
+        # Get LLM with immutable config
+        llm = get_llm(configurable)
+        
+        # Create immutable input state
+        input_messages = tuple(list(messages) + tool_messages)
+        
+        # Get final response
+        final_response = llm.invoke(list(input_messages))
         
         # Ensure response is properly formatted with immutable components
         if isinstance(final_response, dict):
-            content = final_response.get("content", "Task completed")
+            content = str(final_response.get("content", "Task completed"))
             final_response = AIMessage(
                 content=content,
                 tool_calls=[],
@@ -183,13 +213,14 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
             final_response.tool_calls = []
             final_response.additional_kwargs = {"final_answer": True}
         
+        # Return immutable result
         return {"messages": list(messages) + tool_messages + [final_response]}
         
     except Exception as e:
         error_msg = f"Error processing tool results: {str(e)}"
         logger.error(error_msg)
         return {
-            "messages": list(messages) + tool_messages + [
+            "messages": list(messages) + [
                 SystemMessage(
                     content=error_msg,
                     additional_kwargs={"final_answer": True}
