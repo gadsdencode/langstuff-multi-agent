@@ -124,12 +124,12 @@ class MemoryManager:
 
 
 class LangGraphMemoryCheckpointer(BaseCheckpointSaver):
-    def __init__(self, memory_manager: MemoryManager, max_history: int = 5):
+    def __init__(self, memory_manager: 'MemoryManager', max_history: int = 5):
         self.mm = memory_manager
         self.max_history = max_history
 
     def get(self, config: RunnableConfig) -> Checkpoint:
-        """Retrieve checkpoint with full SupervisorState."""
+        """Retrieve checkpoint with serialized SupervisorState."""
         user_id = config["configurable"].get("user_id", "global")
         state = self.mm.load_state(user_id)
         if state is None:
@@ -140,16 +140,44 @@ class LangGraphMemoryCheckpointer(BaseCheckpointSaver):
                 "reasoning": None,
                 "memory_triples": self.mm.search_memories(user_id, "recent", self.max_history)
             }
-        return Checkpoint(v=state)
+        # Serialize the state to a JSON string
+        serialized_state = json.dumps(state, default=self._serialize_message)
+        return Checkpoint(v={"serialized_state": serialized_state})
 
     def put(self, config: RunnableConfig, checkpoint: Checkpoint) -> None:
-        """Store checkpoint with full SupervisorState."""
+        """Store checkpoint by deserializing the SupervisorState."""
         user_id = config["configurable"].get("user_id", "global")
-        state = checkpoint["v"]
+        serialized_state = checkpoint["v"]["serialized_state"]
+        # Deserialize the JSON string back to the state
+        state = json.loads(serialized_state, object_hook=self._deserialize_message)
         if "memory_triples" in state:
             self.mm.save_memory(user_id, state["memory_triples"])
         state["memory_triples"] = self.mm.search_memories(user_id, "recent", self.max_history)
         self.mm.save_state(user_id, state)
+
+    def _serialize_message(self, obj):
+        """Helper to serialize BaseMessage objects."""
+        if isinstance(obj, BaseMessage):
+            return obj.to_json()
+        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+    def _deserialize_message(self, dct):
+        """Helper to deserialize messages back to BaseMessage objects."""
+        if "type" in dct and "content" in dct:
+            message_type = dct["type"]
+            if message_type == "human":
+                return HumanMessage(content=dct["content"])
+            elif message_type == "ai":
+                return AIMessage(content=dct["content"], tool_calls=dct.get("tool_calls", []))
+            elif message_type == "system":
+                return SystemMessage(content=dct["content"])
+            elif message_type == "tool":
+                return ToolMessage(
+                    content=dct["content"],
+                    tool_call_id=dct.get("tool_call_id", ""),
+                    name=dct.get("name", "")
+                )
+        return dct
 
 
 memory_manager = MemoryManager()
