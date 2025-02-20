@@ -84,15 +84,43 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
     if not tool_calls:
         return state
     
+    # Define a tool mapping to ensure correct tool instances are used
+    tool_map = {
+        "search_web": search_web,
+        "get_current_weather": get_current_weather,
+        "calendar_tool": calendar_tool
+    }
+    
     tool_messages = []
     for tc in tool_calls:
-        tool = next(t for t in [search_web, get_current_weather, calendar_tool] if t.name == tc.name)
-        output = tool.invoke(tc.args)
-        tool_messages.append(ToolMessage(
-            content=str(output),
-            tool_call_id=tc.id,
-            name=tc.name
-        ))
+        tool_name = tc.name
+        if tool_name not in tool_map:
+            logger.error(f"Unknown tool: {tool_name}")
+            tool_messages.append(ToolMessage(
+                content=f"Error: Tool '{tool_name}' not found",
+                tool_call_id=tc.id,
+                name=tool_name
+            ))
+            continue
+        
+        tool = tool_map[tool_name]
+        try:
+            # Ensure tc.args is a dictionary and invoke the tool
+            if not isinstance(tc.args, dict):
+                raise ValueError(f"Tool call args must be a dict, got {type(tc.args)}")
+            output = tool.invoke(tc.args)
+            tool_messages.append(ToolMessage(
+                content=str(output),
+                tool_call_id=tc.id,
+                name=tool_name
+            ))
+        except Exception as e:
+            logger.error(f"Tool invocation failed for {tool_name}: {str(e)}")
+            tool_messages.append(ToolMessage(
+                content=f"Error executing tool '{tool_name}': {str(e)}",
+                tool_call_id=tc.id,
+                name=tool_name
+            ))
 
     llm = get_llm(config.get("configurable", {}))
     final_response = llm.invoke(state["messages"] + tool_messages)
