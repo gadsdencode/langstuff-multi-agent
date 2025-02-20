@@ -5,6 +5,7 @@ This module provides a workflow for assisting with scheduling, reminders, and ge
 """
 
 import logging
+import json
 from langgraph.graph import StateGraph, MessagesState, END
 from langchain_core.messages import (
     AIMessage,
@@ -33,39 +34,53 @@ logger.setLevel(logging.INFO)
 def convert_message(msg):
     """Convert a message dict or object to a proper BaseMessage object."""
     if isinstance(msg, BaseMessage):
-        return msg
+        # If it's already a BaseMessage, ensure it has a valid type
+        msg_type = getattr(msg, "type", None)
+        if msg_type in ("human", "user", "ai", "assistant", "function", "tool", "system", "developer"):
+            return msg
+        # If type is invalid, convert to appropriate type based on content
+        content = str(getattr(msg, "content", ""))
+        kwargs = getattr(msg, "additional_kwargs", {})
+        return HumanMessage(content=content, additional_kwargs=kwargs)
         
     if isinstance(msg, dict):
-        # Convert dict to hashable form
-        msg_type = str(msg.get("type", msg.get("role", "")))
+        # Get message type, defaulting to "human" for user messages
+        msg_type = str(msg.get("type", msg.get("role", "human")))
         content = str(msg.get("content", ""))
-        kwargs = frozenset((k, str(v)) for k, v in msg.get("additional_kwargs", {}).items())
+        kwargs = msg.get("additional_kwargs", {})
         
-        if msg_type == "human":
-            return HumanMessage(content=content)
-        elif msg_type in ("assistant", "ai"):
-            # Ensure tool_calls is immutable
-            tool_calls = []  # Always start with empty tool calls
-            return AIMessage(content=content, tool_calls=tool_calls)
+        # Map message types to LangChain types
+        if msg_type in ("human", "user"):
+            return HumanMessage(content=content, additional_kwargs=kwargs)
+        elif msg_type in ("ai", "assistant"):
+            # Ensure tool_calls is a list
+            tool_calls = list(msg.get("tool_calls", []))
+            return AIMessage(content=content, tool_calls=tool_calls, additional_kwargs=kwargs)
         elif msg_type == "system":
-            return SystemMessage(content=content)
-        elif msg_type == "tool":
+            return SystemMessage(content=content, additional_kwargs=kwargs)
+        elif msg_type in ("function", "tool"):
             return ToolMessage(
                 content=content,
                 tool_call_id=str(msg.get("tool_call_id", "")),
                 name=str(msg.get("name", "")),
-                additional_kwargs=dict(kwargs) if kwargs else {}
+                additional_kwargs=kwargs
             )
+        elif msg_type == "developer":
+            return SystemMessage(content=content, additional_kwargs=kwargs)
         else:
-            raise ValueError(f"Unknown message type: {msg_type}")
-    return msg
+            # Default to HumanMessage for unknown types
+            return HumanMessage(content=content, additional_kwargs=kwargs)
+    
+    # If it's a string or other type, treat as human message content
+    return HumanMessage(content=str(msg))
 
 
 def convert_messages(messages):
-    """Convert a list of messages to proper BaseMessage objects with immutable state."""
+    """Convert a list of messages to proper BaseMessage objects."""
     if not messages:
         return []
-    return tuple(convert_message(msg) for msg in messages)
+    # Ensure each message is properly converted
+    return [convert_message(msg) for msg in messages]
 
 
 system_prompt = SystemMessage(content=(
@@ -84,44 +99,45 @@ system_prompt = SystemMessage(content=(
 def assist(state: MessagesState, config: dict) -> dict:
     """Process user input and provide assistance."""
     try:
-        # Convert state to immutable form using frozenset
+        # Convert state to list of proper message objects
         messages = convert_messages(state.get("messages", []))
         
-        # Convert config to immutable form
+        # Convert config to serializable form
         config_dict = dict(config) if hasattr(config, "dict") else {}
-        configurable = frozenset((k, str(v)) for k, v in config_dict.get("configurable", {}).items())
+        configurable = config_dict.get("configurable", {})
         
-        # Get LLM with immutable config
-        llm = get_llm(dict(configurable))
-        tools = (search_web, get_current_weather, calendar_tool)
+        # Get LLM with config
+        llm = get_llm(configurable)
+        tools = [search_web, get_current_weather, calendar_tool]
         llm_with_tools = llm.bind_tools(tools)
         
-        # Create immutable input state
-        input_messages = list(messages) + [system_prompt]
+        # Create input state
+        input_messages = messages + [system_prompt]
         
         # Get response
         response = llm_with_tools.invoke(input_messages)
         
-        # Ensure response is properly formatted with immutable components
+        # Ensure response is properly formatted
         if isinstance(response, dict):
             content = str(response.get("content", ""))
             response = AIMessage(
                 content=content,
                 tool_calls=[],
-                additional_kwargs={"final_answer": True}
+                additional_kwargs={"final_answer": True},
+                type="assistant"  # Explicitly set type
             )
         elif not isinstance(response, AIMessage):
             response = AIMessage(
                 content=str(response),
                 tool_calls=[],
-                additional_kwargs={"final_answer": True}
+                additional_kwargs={"final_answer": True},
+                type="assistant"  # Explicitly set type
             )
         else:
-            # Ensure immutable components
+            response.type = "assistant"  # Ensure type is set
             response.tool_calls = []
             response.additional_kwargs = {"final_answer": True}
         
-        # Return result with immutable message
         return {"messages": [response]}
         
     except Exception as e:
@@ -140,27 +156,29 @@ def assist(state: MessagesState, config: dict) -> dict:
 def process_tool_results(state: MessagesState, config: dict) -> dict:
     """Process the results of tool calls."""
     try:
-        # Convert state to immutable form using frozenset
+        # Convert state to list of proper message objects
         messages = convert_messages(state.get("messages", []))
         if not messages:
             return {"messages": []}
         
-        # Get tool calls in immutable form
+        # Get tool calls from last message
         last_message = messages[-1]
         tool_calls = []
         if isinstance(last_message, AIMessage):
-            tool_calls = tuple(
-                (str(tc.name), str(tc.id), frozenset(tc.args.items()))
-                for tc in getattr(last_message, "tool_calls", [])
-            )
+            # Convert tool calls to proper format
+            tool_calls = list(getattr(last_message, "tool_calls", []))
         
         if not tool_calls:
-            return {"messages": list(messages)}
+            return {"messages": messages}
 
-        # Process tool calls with immutable handling
+        # Process tool calls
         tool_messages = []
-        for tool_name, tool_id, tool_args in tool_calls:
+        for tc in tool_calls:
             try:
+                tool_name = str(tc.name)
+                tool_id = str(tc.id)
+                tool_args = dict(tc.args)
+                
                 # Get appropriate tool
                 if tool_name == "search_web":
                     input_model, tool_func = SearchWebInput, search_web
@@ -176,22 +194,24 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
                             content=error_msg,
                             tool_call_id=tool_id,
                             name=tool_name,
-                            additional_kwargs={"error": True}
+                            additional_kwargs={"error": True},
+                            type="tool"  # Explicitly set type
                         )
                     )
                     continue
 
-                # Execute tool with immutable args
-                input_obj = input_model(**dict(tool_args))
+                # Execute tool
+                input_obj = input_model(**tool_args)
                 output = tool_func(input=input_obj)
                 
-                # Create immutable tool message
+                # Create tool message
                 tool_messages.append(
                     ToolMessage(
                         content=str(output),
                         tool_call_id=tool_id,
                         name=tool_name,
-                        additional_kwargs={}
+                        additional_kwargs={},
+                        type="tool"  # Explicitly set type
                     )
                 )
             except Exception as e:
@@ -202,52 +222,56 @@ def process_tool_results(state: MessagesState, config: dict) -> dict:
                         content=error_msg,
                         tool_call_id=tool_id,
                         name=tool_name,
-                        additional_kwargs={"error": True}
+                        additional_kwargs={"error": True},
+                        type="tool"  # Explicitly set type
                     )
                 )
 
-        # Convert config to immutable form
+        # Convert config to serializable form
         config_dict = dict(config) if hasattr(config, "dict") else {}
-        configurable = frozenset((k, str(v)) for k, v in config_dict.get("configurable", {}).items())
+        configurable = config_dict.get("configurable", {})
         
-        # Get LLM with immutable config
-        llm = get_llm(dict(configurable))
+        # Get LLM with config
+        llm = get_llm(configurable)
         
-        # Create immutable input state
-        input_messages = list(messages) + tool_messages
+        # Create input state
+        input_messages = messages + tool_messages
         
         # Get final response
         final_response = llm.invoke(input_messages)
         
-        # Ensure response is properly formatted with immutable components
+        # Ensure response is properly formatted
         if isinstance(final_response, dict):
             content = str(final_response.get("content", "Task completed"))
             final_response = AIMessage(
                 content=content,
                 tool_calls=[],
-                additional_kwargs={"final_answer": True}
+                additional_kwargs={"final_answer": True},
+                type="assistant"  # Explicitly set type
             )
         elif not isinstance(final_response, AIMessage):
             final_response = AIMessage(
                 content=str(final_response),
                 tool_calls=[],
-                additional_kwargs={"final_answer": True}
+                additional_kwargs={"final_answer": True},
+                type="assistant"  # Explicitly set type
             )
         else:
+            final_response.type = "assistant"  # Ensure type is set
             final_response.tool_calls = []
             final_response.additional_kwargs = {"final_answer": True}
         
-        # Return result with immutable messages
-        return {"messages": list(messages) + tool_messages + [final_response]}
+        return {"messages": messages + tool_messages + [final_response]}
         
     except Exception as e:
         error_msg = f"Error processing tool results: {str(e)}"
         logger.error(error_msg)
         return {
-            "messages": list(messages) + [
+            "messages": messages + [
                 SystemMessage(
                     content=error_msg,
-                    additional_kwargs={"final_answer": True}
+                    additional_kwargs={"final_answer": True},
+                    type="system"  # Explicitly set type
                 )
             ]
         }
